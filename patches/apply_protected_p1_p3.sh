@@ -21,26 +21,39 @@
 #        (curl -L / forced wget --max-redirect=0) whose target the guard can't see.
 #   #8/#10  bitacora_log.sh: every audit line carries run_id / agent / session.
 set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Optional ROOT arg makes this testable against a throwaway copy of the tree
+# (tests/test_patch_idempotency.sh); defaults to the real repo for the operator.
+ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 python3 - "$ROOT" <<'PY'
 import sys, io, os
 root = sys.argv[1]
 
 def edit(path, repls):
+    # IDEMPOTENT even when `new` CONTAINS `old` (the old skip guard
+    # `new in s and old not in s` failed in that case and re-inserted on every
+    # run -> the triplication bug). Fix: mask already-applied `new` blocks with a
+    # sentinel, then count/replace only the anchors that remain UN-applied.
     p = os.path.join(root, path)
     with io.open(p, encoding="utf-8") as f:
         s = f.read()
+    SENT = "\x00"
+    changed = False
     for old, new, n in repls:
-        if new in s and old not in s:
-            print(f"  [skip] {path}: already applied")
+        masked = s.replace(new, SENT)        # hide applied blocks
+        c = masked.count(old)                # anchors not yet applied
+        if c == 0:
+            print(f"  [skip] {path}: already applied (<<{old[:40].strip()}...>>)")
             continue
-        c = s.count(old)
-        assert c == n, f"ANCHOR MISMATCH in {path}: expected {n} of <<{old[:60]}...>>, found {c}"
-        s = s.replace(old, new)
-    with io.open(p, "w", encoding="utf-8") as f:
-        f.write(s)
-    print(f"  [ok]   {path}")
+        assert c == n, f"ANCHOR MISMATCH in {path}: expected {n} un-applied of <<{old[:60]}...>>, found {c}"
+        s = masked.replace(old, new).replace(SENT, new)
+        changed = True
+    if changed:
+        with io.open(p, "w", encoding="utf-8") as f:
+            f.write(s)
+        print(f"  [ok]   {path}")
+    else:
+        print(f"  [--]   {path}: no changes (idempotent)")
 
 # ── #12: init.sh -- add cmd_detector.sh to the security surface ───────────
 edit("init.sh", [(
