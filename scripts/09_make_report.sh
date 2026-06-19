@@ -36,9 +36,20 @@ done
   echo ""
   echo "| Species | Accession |"
   echo "|---------|-----------|"
-  while IFS=$'\t' read -r sp acc; do
-    echo "| ${sp} | ${acc} |"
-  done < "${PROJECT_ROOT}/accessions.tsv"
+  if [[ -s "${PROJECT_ROOT}/accessions.tsv" ]]; then
+    # Validate provenance instead of embedding it blindly (#4): flag rows that
+    # lack an accession rather than printing a silently-broken table.
+    while IFS=$'\t' read -r sp acc _rest; do
+      [[ -z "${sp}" ]] && continue
+      if [[ -z "${acc}" ]]; then
+        echo "| ${sp} | **MISSING/INVALID accession** |"
+      else
+        echo "| ${sp} | ${acc} |"
+      fi
+    done < "${PROJECT_ROOT}/accessions.tsv"
+  else
+    echo "| *accessions.tsv missing or empty* | - |"
+  fi
   echo ""
 
   # ── Tree ────────────────────────────────────────────────────────────────
@@ -98,18 +109,32 @@ done
   # ── Extracted ancestors ─────────────────────────────────────────────────
   echo "## Extracted Ancestors"
   echo ""
-  echo "| Ancestor | File | Size |"
-  echo "|----------|------|------|"
+  # N-fraction column (#4): surface degenerate (mostly-N) ancestors so the
+  # report cannot present a garbage reconstruction as a clean success.
+  echo "| Ancestor | File | Size | N-fraction | Quality |"
+  echo "|----------|------|------|-----------|---------|"
+  WARN_NF="${HOMOPAN_WARN_N_FRAC:-0.50}"; DEGEN=0
   for anc in "${ANCESTOR_NODES[@]}"; do
     FA="${RESULTS_ANCESTORS}/${anc}.fa"
     if [[ -f "${FA}" ]]; then
       SZ=$(du -h "${FA}" | cut -f1)
-      echo "| ${anc} | ${FA#${PROJECT_ROOT}/} | ${SZ} |"
+      NF=$(awk -F'\t' -v a="${anc}" '$1==a{print $4}' "${QC_DIR}/ancestor_checksums.tsv" 2>/dev/null)
+      [[ -z "${NF}" ]] && NF="NA"
+      Q="OK"
+      if [[ "${NF}" != "NA" ]] && awk "BEGIN{exit !(${NF} > ${WARN_NF})}"; then
+        Q="LOW-CONFIDENCE (mostly N)"; DEGEN=1
+      fi
+      echo "| ${anc} | ${FA#${PROJECT_ROOT}/} | ${SZ} | ${NF} | ${Q} |"
     else
-      echo "| ${anc} | *not extracted yet* | - |"
+      echo "| ${anc} | *not extracted yet* | - | - | - |"
     fi
   done
   echo ""
+  if (( DEGEN == 1 )); then
+    echo "> **WARNING:** one or more ancestors exceed the N-fraction warning threshold (${WARN_NF})."
+    echo "> Those reconstructions are LOW-CONFIDENCE and must NOT be interpreted biologically."
+    echo ""
+  fi
 
   # ── Output files ────────────────────────────────────────────────────────
   echo "## Output Files"
@@ -132,6 +157,16 @@ done
   else
     echo "*Environment not captured*"
   fi
+  echo ""
+
+  # ── Provenance / reproducibility (#1, #5) ────────────────────────────────
+  echo "## Provenance"
+  echo ""
+  echo "Per-run manifest (immutable, for rigorous run-to-run comparison):"
+  echo '```'
+  echo "${QC_DIR#${PROJECT_ROOT}/}/manifests/${RUN_ID}.json"
+  echo '```'
+  echo "Compare two runs: \`bash scripts/compare_runs.sh <run_id_a> <run_id_b>\`"
   echo ""
 
   # ── Caveats ─────────────────────────────────────────────────────────────
@@ -157,4 +192,9 @@ done
 } > "${REPORT}"
 
 log_ok "Report written to $(sanitize_path "${REPORT}")"
+
+# Immutable per-run manifest: tool versions, SIF digest, seed, params, and
+# input/output hashes -- enables rigorous comparison/replay across runs (#1,#5).
+write_run_manifest
+
 mark_done "09_make_report"

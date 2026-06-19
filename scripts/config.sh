@@ -621,6 +621,32 @@ compute_sha256() {
   sha256sum "$1" | cut -d' ' -f1
 }
 
+# ── Ancestral FASTA quality gate (#4: stop the report from "lying") ────────
+# A reconstructed ancestor that is mostly N is a DEGENERATE result, not a
+# success -- but assert_file_nonempty passes it happily. Compute the no-call
+# fraction (N/n, incl. soft-masked no-calls) in one pass.
+fasta_n_fraction() {   # <fasta> -> prints fraction 0..1
+  awk '!/^>/{ s=$0; n=gsub(/[Nn]/,"",s); N+=n; T+=length($0) }
+       END{ if(T==0){print "1.0000"} else {printf "%.4f", N/T} }' "$1"
+}
+
+# Records + gates the N-fraction. Loud WARN above HOMOPAN_WARN_N_FRAC (0.50),
+# fail-closed above HOMOPAN_MAX_N_FRAC (0.90) so a garbage ancestor is never
+# marked done as a success. Echoes the fraction on stdout (logs go to stderr).
+assert_ancestor_quality() {   # <fasta> <label>
+  local fa="$1" label="${2:-$(basename "$1")}"
+  local warn="${HOMOPAN_WARN_N_FRAC:-0.50}" max="${HOMOPAN_MAX_N_FRAC:-0.90}"
+  local nf; nf="$(fasta_n_fraction "$fa")"
+  if awk "BEGIN{exit !(${nf} > ${max})}"; then
+    die "Ancestor '${label}' is ${nf} N (> ${max}): degenerate reconstruction; refusing to mark done. Override with HOMOPAN_MAX_N_FRAC=1 if intentional."
+  elif awk "BEGIN{exit !(${nf} > ${warn})}"; then
+    log_warn "Ancestor '${label}' is ${nf} N (> ${warn}): LOW-CONFIDENCE reconstruction (recorded in report)."
+  else
+    log_ok "Ancestor '${label}' N-fraction ${nf} (OK)"
+  fi
+  printf '%s' "${nf}"
+}
+
 # ── Environment capture ──────────────────────────────────────────────────
 capture_env() {
   local outfile="${1:-${QC_DIR}/environment.txt}"
@@ -658,6 +684,71 @@ capture_env() {
     echo ""
   } >> "$outfile"
   log_ok "Environment appended to $(sanitize_path "$outfile") (SIF ${sif_digest:0:12}...)"
+}
+
+# ── Per-run manifest (#5 longitudinal rigor, #1 reproducibility) ───────────
+# One IMMUTABLE JSON per run_id under qc/manifests/ -- never overwritten, so a
+# past run survives later runs and scripts/compare_runs.sh can diff two runs
+# rigorously: tool versions, SIF digest, seed, params, and input/output hashes.
+write_run_manifest() {
+  local dir="${QC_DIR}/manifests"; mkdir -p "${dir}"
+  local out="${dir}/${RUN_ID}.json"
+  # Provenance is BEST-EFFORT: a capture hiccup (SIGPIPE from `| head`, a jq
+  # quirk, a confined jq) must NEVER fail an otherwise-successful run. Compute
+  # everything in a set+e subshell and always return 0; the caller's `set -e`
+  # is thus never tripped by manifest writing.
+  (
+    set +e
+    sif_digest=$(sha256sum "$(realpath -m "${SIF}" 2>/dev/null)" 2>/dev/null | cut -d' ' -f1)
+    samtools_v=$(samtools --version 2>/dev/null | head -1)
+    apptainer_v=$(apptainer --version 2>/dev/null)
+    cactus_v=$(run_in_container cactus --version 2>&1 | head -1)
+    hal_sha=""; [[ -f "${HAL_FULL}" ]] && hal_sha=$(compute_sha256 "${HAL_FULL}")
+
+    JQ=""
+    if command -v jq &>/dev/null; then JQ=jq; else
+      for c in "${HOME}/miniconda3/envs/homopan_ancestor/bin/jq" /usr/bin/jq; do
+        [[ -x "$c" ]] && { JQ="$c"; break; }; done
+    fi
+
+    if [[ -n "${JQ}" ]]; then
+      # Feed tsv via STDIN, not by path: a confined jq (e.g. snap) cannot open
+      # arbitrary file paths and would silently degrade these to {} (losing the
+      # input/output hashes). stdin works with any jq build.
+      gen_json="{}"; anc_json="{}"
+      [[ -f "${QC_DIR}/genome_checksums.tsv" ]] && gen_json=$("${JQ}" -Rn \
+        '[inputs|select(length>0)|split("\t")|{(.[0]):{sha256:.[1],bytes:.[2]}}]|add // {}' \
+        < "${QC_DIR}/genome_checksums.tsv")
+      [[ -f "${QC_DIR}/ancestor_checksums.tsv" ]] && anc_json=$("${JQ}" -Rn \
+        '[inputs|select(length>0)|split("\t")|{(.[0]):{sha256:.[1],bp:.[2],n_fraction:(.[3]//"NA")}}]|add // {}' \
+        < "${QC_DIR}/ancestor_checksums.tsv")
+      # Guard: never feed empty/garbage to --argjson (would abort the builder).
+      [[ "${gen_json}" == [\{\[]* ]] || gen_json="{}"
+      [[ "${anc_json}" == [\{\[]* ]] || anc_json="{}"
+      "${JQ}" -n \
+        --arg run_id "${RUN_ID}" --arg ts "$(date -Iseconds)" --arg ns "${RUN_NS:-}" \
+        --arg host "$(hostname)" --arg sif "${sif_digest}" --arg sam "${samtools_v}" \
+        --arg app "${apptainer_v}" --arg cac "${cactus_v}" --arg seed "${CACTUS_SEED-0}" \
+        --arg newick "${NEWICK_TREE}" --arg region "${TEST_REGION_LEN}" \
+        --arg ancestors "${ANCESTOR_NODES[*]}" --arg hal "${hal_sha}" \
+        --argjson genomes "${gen_json}" --argjson anc "${anc_json}" \
+        '{run_id:$run_id,timestamp:$ts,namespace:$ns,host:$host,
+          tools:{sif_sha256:$sif,cactus:$cac,samtools:$sam,apptainer:$app},
+          params:{cactus_seed:$seed,newick:$newick,test_region_len:$region,
+                  ancestors:($ancestors|split(" "))},
+          inputs:{genomes:$genomes},
+          outputs:{full_hal_sha256:$hal,ancestors:$anc}}' > "${out}"
+    else
+      printf '{"run_id":"%s","timestamp":"%s","namespace":"%s","tools":{"sif_sha256":"%s","cactus":"%s","samtools":"%s"},"params":{"cactus_seed":"%s"},"outputs":{"full_hal_sha256":"%s"}}\n' \
+        "${RUN_ID}" "$(date -Iseconds)" "${RUN_NS:-}" "${sif_digest}" "${cactus_v}" "${samtools_v}" "${CACTUS_SEED-0}" "${hal_sha}" > "${out}"
+    fi
+  )
+  if [[ -s "${out}" ]]; then
+    log_ok "Run manifest written: $(sanitize_path "${out}")"
+  else
+    log_warn "Run manifest could not be written (best-effort provenance skipped)."
+  fi
+  return 0
 }
 
 # ── Script banner ─────────────────────────────────────────────────────────
