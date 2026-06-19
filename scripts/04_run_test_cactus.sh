@@ -49,8 +49,7 @@ log_info "Output:  $(sanitize_path "${HAL_TEST}")"
 log_info "Log:     $(sanitize_path "${LOGFILE}")"
 log_info "Mode:    ${RESTART_FLAG[*]:-fresh}"
 
-timeout "${CACTUS_TIMEOUT:-172800}" \
-  run_cactus \
+run_cactus \
   "${JS_TEST}" \
   "${SEQFILE_TEST}" \
   "${HAL_TEST}" \

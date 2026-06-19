@@ -307,7 +307,10 @@ run_cactus() {
   if [[ "${WORK_DIR}" != "${PROJECT_ROOT}"* ]]; then
     bind_args+=("--bind" "${WORK_DIR}:${WORK_DIR}")
   fi
-  apptainer exec "${bind_args[@]}" "${SIF}" cactus --binariesMode local "$@"
+  # timeout is applied HERE (it must wrap a real binary; `timeout run_cactus`
+  # would fail because run_cactus is a shell function). Callers check exit 124.
+  timeout "${CACTUS_TIMEOUT:-172800}" \
+    apptainer exec "${bind_args[@]}" "${SIF}" cactus --binariesMode local "$@"
 }
 
 run_halStats()    { run_in_container halStats "$@"; }

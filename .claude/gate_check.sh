@@ -28,20 +28,27 @@ AGENTS_MD="${PROJECT_ROOT}/agents.md"
 # separately by bash_is_obfuscated() below.
 bash_writes_protected() {
   local c="$1"
-  local prot='(CLAUDE\.md|agents\.md|gate_check\.sh|bitacora_log\.sh|settings\.json|init\.sh|\.gate_pass)'
+  # Protected = contract surface + the REAL boundary scripts (sandbox/egress).
+  local prot='(CLAUDE\.md|agents\.md|gate_check\.sh|bitacora_log\.sh|settings\.json|init\.sh|\.gate_pass|sandbox_run\.sh|_guard\.sh|egress_allowlist\.txt)'
 
   # 1. Never allow the agent to touch the gate pass via Bash.
   grep -Eq '\.gate_pass' <<<"$c" && return 0
 
-  # 2. Redirection ( > or >> , optional fd / path prefix) into a protected file.
-  grep -Eq '(^|[^0-9])[0-9]*>>?[[:space:]]*([^[:space:]"'"'"';|&]*/)?'"$prot" <<<"$c" && return 0
+  # Normalized copy: strip quotes and backslashes so >'CLAUDE.md', >"CLAUDE.md"
+  # and >C\LAUDE.md cannot hide the target from the patterns below (fuzz P1).
+  local n s
+  n=$(printf '%s' "$c" | tr -d "\"'" | tr -d '\\')
 
-  # 3. In-place / copy / move / truncate utilities targeting a protected file.
-  grep -Eq '(^|[[:space:];&|(])(sed[[:space:]]+-i|perl[[:space:]]+-[A-Za-z]*i|awk[[:space:]]+-i|tee([[:space:]]+-a)?|cp|mv|dd|install|truncate|ln|chmod|chown|rm|shred)([[:space:]]|=).*'"$prot" <<<"$c" && return 0
+  for s in "$c" "$n"; do
+    # 2. Redirection ( > or >> , optional fd / path prefix) into a protected file.
+    grep -Eq '(^|[^0-9])[0-9]*>>?[[:space:]]*([^[:space:]"'"'"';|&]*/)?'"$prot" <<<"$s" && return 0
+    # 3. In-place / copy / move / truncate utilities targeting a protected file.
+    grep -Eq '(^|[[:space:];&|(])(sed[[:space:]]+-i|perl[[:space:]]+-[A-Za-z]*i|awk[[:space:]]+-i|tee([[:space:]]+-a)?|cp|mv|dd|install|truncate|ln|chmod|chown|rm|shred)([[:space:]]|=).*'"$prot" <<<"$s" && return 0
+  done
 
   # 4. Interpreter writing to a protected file (python/perl/ruby/node/php).
   if grep -Eq '(python|perl|ruby|node|php)' <<<"$c" \
-     && grep -Eq "$prot" <<<"$c" \
+     && grep -Eq "$prot" <<<"$n" \
      && grep -Eq "(open\(|['\"]w['\"]|>>?|writeFile|O_WRONLY|O_CREAT)" <<<"$c"; then
     return 0
   fi
@@ -121,6 +128,12 @@ if [[ "${TOOL}" == "Bash" ]]; then
     echo "DENY: obfuscated/remote-exec Bash pattern (base64|sh, curl|sh, eval)." >&2
     exit 2
   fi
+
+  # Hardline: clinical/human-subject data is off-limits to Bash (read OR write).
+  if grep -Eq 'il10_analisis' <<<"${COMMAND}"; then
+    echo "DENY: il10_analisis (human-subject/clinical data) is off-limits to Bash." >&2
+    exit 2
+  fi
 fi
 
 # Network tools denied (no-egress policy; use scripts/sandbox_run.sh if needed)
@@ -170,7 +183,18 @@ else
   SKILLS_HASH="none"
 fi
 
-CURRENT_HASH=$( { sha256sum "${SECURITY_FILES[@]}"; printf 'skills:%s\n' "${SKILLS_HASH}"; } 2>/dev/null | sha256sum | cut -d' ' -f1)
+# Fold in the REAL boundary scripts (sandbox + egress) so tampering with them
+# invalidates the pass (must match init.sh exactly).
+BOUNDARY_FILES=(
+  "${PROJECT_ROOT}/scripts/sandbox_run.sh"
+  "${PROJECT_ROOT}/scripts/net_wrappers/_guard.sh"
+  "${PROJECT_ROOT}/scripts/net_wrappers/curl"
+  "${PROJECT_ROOT}/scripts/net_wrappers/wget"
+  "${PROJECT_ROOT}/egress_allowlist.txt"
+)
+BOUNDARY_HASH=$(sha256sum "${BOUNDARY_FILES[@]}" 2>/dev/null | sha256sum | cut -d' ' -f1)
+
+CURRENT_HASH=$( { sha256sum "${SECURITY_FILES[@]}"; printf 'skills:%s\n' "${SKILLS_HASH}"; printf 'boundary:%s\n' "${BOUNDARY_HASH}"; } 2>/dev/null | sha256sum | cut -d' ' -f1)
 STORED_HASH=$(head -1 "${GATE_PASS}" | cut -d' ' -f1)
 
 if [[ "${CURRENT_HASH}" != "${STORED_HASH}" ]]; then
@@ -195,6 +219,11 @@ if [[ "${TOOL}" == "Write" || "${TOOL}" == "Edit" || "${TOOL}" == "NotebookEdit"
       "${SCRIPT_DIR}/settings.json"
       "${SCRIPT_DIR}/.gate_pass"
       "${PROJECT_ROOT}/init.sh"
+      "${PROJECT_ROOT}/scripts/sandbox_run.sh"
+      "${PROJECT_ROOT}/scripts/net_wrappers/_guard.sh"
+      "${PROJECT_ROOT}/scripts/net_wrappers/curl"
+      "${PROJECT_ROOT}/scripts/net_wrappers/wget"
+      "${PROJECT_ROOT}/egress_allowlist.txt"
     )
     for protected in "${HARDLINE_DENY[@]}"; do
       PROTECTED_ABS=$(realpath -m "${protected}" 2>/dev/null || echo "${protected}")

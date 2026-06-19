@@ -159,15 +159,16 @@ SECURITY_FILES=(
   "${PROJECT_ROOT}/init.sh"
 )
 
-# Pass hash must match init.sh exactly: 6 surface files + skills/ tree fold.
+# Pass hash must match init.sh exactly: surface files + skills + boundary fold.
 gen_hash() {
-  local sh
+  local sh bh
   if [[ -d "${CLAUDE_DIR}/skills" ]]; then
     sh=$(find "${CLAUDE_DIR}/skills" -type f -print0 | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1)
   else
     sh="none"
   fi
-  { sha256sum "${SECURITY_FILES[@]}"; printf 'skills:%s\n' "${sh}"; } 2>/dev/null | sha256sum | cut -d' ' -f1
+  bh=$(sha256sum "${PROJECT_ROOT}/scripts/sandbox_run.sh" "${PROJECT_ROOT}/scripts/net_wrappers/_guard.sh" "${PROJECT_ROOT}/scripts/net_wrappers/curl" "${PROJECT_ROOT}/scripts/net_wrappers/wget" "${PROJECT_ROOT}/egress_allowlist.txt" 2>/dev/null | sha256sum | cut -d' ' -f1)
+  { sha256sum "${SECURITY_FILES[@]}"; printf 'skills:%s\n' "${sh}"; printf 'boundary:%s\n' "${bh}"; } 2>/dev/null | sha256sum | cut -d' ' -f1
 }
 
 ALL_SEC_EXIST=true

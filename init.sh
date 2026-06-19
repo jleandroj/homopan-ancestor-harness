@@ -235,7 +235,18 @@ else
 fi
 info "  skills/ tree: ${SKILLS_HASH:0:16}..."
 
-HASH=$( { sha256sum "${SECURITY_FILES[@]}"; printf 'skills:%s\n' "${SKILLS_HASH}"; } 2>/dev/null | sha256sum | cut -d' ' -f1)
+# Fold in the REAL boundary scripts (sandbox + egress); must match gate_check.sh.
+BOUNDARY_FILES=(
+  "${PROJECT_ROOT}/scripts/sandbox_run.sh"
+  "${PROJECT_ROOT}/scripts/net_wrappers/_guard.sh"
+  "${PROJECT_ROOT}/scripts/net_wrappers/curl"
+  "${PROJECT_ROOT}/scripts/net_wrappers/wget"
+  "${PROJECT_ROOT}/egress_allowlist.txt"
+)
+BOUNDARY_HASH=$(sha256sum "${BOUNDARY_FILES[@]}" 2>/dev/null | sha256sum | cut -d' ' -f1)
+info "  boundary scripts: ${BOUNDARY_HASH:0:16}..."
+
+HASH=$( { sha256sum "${SECURITY_FILES[@]}"; printf 'skills:%s\n' "${SKILLS_HASH}"; printf 'boundary:%s\n' "${BOUNDARY_HASH}"; } 2>/dev/null | sha256sum | cut -d' ' -f1)
 echo "${HASH}  $(date -Iseconds)" > "${GATE_PASS}"
 pass "Gate pass generated: ${HASH:0:16}..."
 

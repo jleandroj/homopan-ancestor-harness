@@ -34,6 +34,15 @@ cp "${PROJECT_ROOT}/CLAUDE.md"               "${SBOX}/CLAUDE.md"
 cp "${PROJECT_ROOT}/agents.md"               "${SBOX}/agents.md"
 cp "${PROJECT_ROOT}/init.sh"                 "${SBOX}/init.sh"
 
+# Vendor the boundary scripts so the boundary-integrity fold is exercised here
+# (isolated -- no live-state mutation).
+mkdir -p "${SBOX}/scripts/net_wrappers"
+cp "${PROJECT_ROOT}/scripts/sandbox_run.sh"          "${SBOX}/scripts/sandbox_run.sh"
+cp "${PROJECT_ROOT}/scripts/net_wrappers/_guard.sh"  "${SBOX}/scripts/net_wrappers/_guard.sh"
+cp "${PROJECT_ROOT}/scripts/net_wrappers/curl"       "${SBOX}/scripts/net_wrappers/curl"
+cp "${PROJECT_ROOT}/scripts/net_wrappers/wget"       "${SBOX}/scripts/net_wrappers/wget"
+cp "${PROJECT_ROOT}/egress_allowlist.txt"            "${SBOX}/egress_allowlist.txt"
+
 GATE="${SBOX}/.claude/gate_check.sh"
 GATE_PASS="${SBOX}/.claude/.gate_pass"
 
@@ -44,17 +53,22 @@ gen_pass() {
     "${SBOX}/.claude/gate_check.sh" "${SBOX}/.claude/bitacora_log.sh"
     "${SBOX}/.claude/settings.json" "${SBOX}/init.sh"
   )
-  local sh
+  local sh bh
   if [[ -d "${SBOX}/.claude/skills" ]]; then
     sh=$(find "${SBOX}/.claude/skills" -type f -print0 | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1)
   else
     sh="none"
   fi
-  local h; h=$( { sha256sum "${files[@]}"; printf 'skills:%s\n' "${sh}"; } | sha256sum | cut -d' ' -f1)
+  # Sandbox has no boundary scripts -> same empty-input hash the copied gate computes.
+  bh=$(sha256sum "${SBOX}/scripts/sandbox_run.sh" "${SBOX}/scripts/net_wrappers/_guard.sh" "${SBOX}/scripts/net_wrappers/curl" "${SBOX}/scripts/net_wrappers/wget" "${SBOX}/egress_allowlist.txt" 2>/dev/null | sha256sum | cut -d' ' -f1)
+  local h; h=$( { sha256sum "${files[@]}"; printf 'skills:%s\n' "${sh}"; printf 'boundary:%s\n' "${bh}"; } | sha256sum | cut -d' ' -f1)
   echo "${h}  sandbox" > "${GATE_PASS}"
 }
 
-bash_input() { printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$1"; }
+bash_input() {
+  local c="$1"; c="${c//\\/\\\\}"; c="${c//\"/\\\"}"   # JSON-escape \ and "
+  printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$c"
+}
 tool_input() { printf '{"tool_name":"%s","tool_input":{"file_path":"%s"}}' "$1" "$2"; }
 # allow=expected: 0 means should be allowed, nonzero means should be denied
 expect() { # <expected_allow 0|1> <json> <label>
@@ -127,6 +141,20 @@ expect 1 "$(bash_input 'tee -a init.sh < x')"                "tee -a init.sh"
 expect 1 "$(bash_input 'cp /tmp/evil .claude/gate_check.sh')" "cp over gate_check.sh"
 expect 1 "$(bash_input 'bash init.sh && echo x >> CLAUDE.md')" "chained init.sh + write"
 
+# ── 8b. Fuzz: quoting / escaping must not hide the target ──────────────────
+echo ""; echo -e "${BOLD}8b. Quoting/escaping fuzz${NC}"
+expect 1 "$(bash_input "echo x > 'CLAUDE.md'")"            "single-quoted target"
+expect 1 "$(bash_input 'echo x > "CLAUDE.md"')"           "double-quoted target"
+expect 1 "$(bash_input 'echo x > C\LAUDE.md')"           "backslash-escaped target"
+expect 1 "$(bash_input "cat > agents.md <<EOF")"          "here-doc redirect"
+expect 1 "$(bash_input "echo x > './init.sh'")"           "quoted with path prefix"
+
+# ── 8c. Boundary scripts protected like contract files ────────────────────
+echo ""; echo -e "${BOLD}8c. Boundary script writes denied${NC}"
+expect 1 "$(bash_input 'echo x >> scripts/sandbox_run.sh')" "write sandbox_run.sh"
+expect 1 "$(tool_input Write "${SBOX}/scripts/sandbox_run.sh")" "Write sandbox_run.sh (hardline)"
+expect 1 "$(bash_input 'echo evil > egress_allowlist.txt')" "write egress_allowlist.txt"
+
 # ── 9. Obfuscated / remote execution denied; benign decode allowed ────────
 echo ""; echo -e "${BOLD}9. Obfuscation denylist${NC}"
 expect 1 "$(bash_input 'base64 -d payload.b64 | bash')"   "base64 | bash"
@@ -150,6 +178,19 @@ echo ""; echo -e "${BOLD}11. Network deny + non-conda eval${NC}"
 expect 1 '{"tool_name":"WebFetch","tool_input":{}}'           "WebFetch denied"
 expect 1 '{"tool_name":"WebSearch","tool_input":{}}'          "WebSearch denied"
 expect 1 "$(bash_input 'eval ls -la')"                        "non-conda eval denied"
+
+# ── 11b. Clinical data off-limits to Bash (read or write) ─────────────────
+echo ""; echo -e "${BOLD}11b. Clinical data deny${NC}"
+expect 1 "$(bash_input 'cat il10_analisis/patients.csv')"     "clinical read via Bash denied"
+expect 1 "$(bash_input 'cp il10_analisis/x /tmp/')"           "clinical copy via Bash denied"
+
+# ── 12. Boundary integrity: editing sandbox_run.sh invalidates the pass ───
+echo ""; echo -e "${BOLD}12. Boundary integrity${NC}"
+gen_pass
+expect 0 "$(bash_input 'echo hi')"                            "valid pass before tamper"
+echo "# tampered boundary" >> "${SBOX}/scripts/sandbox_run.sh"
+expect 1 "$(bash_input 'echo hi')"                            "stale DENY after editing sandbox_run.sh"
+gen_pass   # restore validity for any later cases
 
 # ── Summary ───────────────────────────────────────────────────────────────
 echo ""

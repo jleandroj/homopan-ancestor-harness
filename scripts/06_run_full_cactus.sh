@@ -57,8 +57,7 @@ log_info "Mode:    ${RESTART_FLAG[*]:-fresh}"
 
 START_TIME=$(date +%s)
 
-timeout "${CACTUS_TIMEOUT:-172800}" \
-  run_cactus \
+run_cactus \
   "${JS_FULL}" \
   "${SEQFILE_FULL}" \
   "${HAL_FULL}" \
