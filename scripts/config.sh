@@ -480,31 +480,58 @@ _sandbox_probe_cache=""
 _probe_sandbox_ok() {
   local bw="${HOMOPAN_BWRAP_BIN:-bwrap}"
   if ! command -v "${bw}" >/dev/null 2>&1; then
-    log_warn "sandbox-compute: '${bw}' not found -> falling back to DIRECT compute (no isolation). Install bubblewrap, or set HOMOPAN_SANDBOX_COMPUTE=0 to silence."
+    log_warn "sandbox-compute probe: '${bw}' not found."
     return 1
   fi
   # Can bwrap actually create the namespaces here? (unprivileged userns check)
   if ! "${bw}" --unshare-user --unshare-net --ro-bind /usr /usr --tmpfs /tmp true >/dev/null 2>&1; then
-    log_warn "sandbox-compute: bwrap cannot create a user namespace on this host (needs unprivileged userns) -> falling back to DIRECT compute. Force isolation with HOMOPAN_SANDBOX_COMPUTE=1."
+    log_warn "sandbox-compute probe: bwrap cannot create a user namespace on this host (needs unprivileged userns)."
     return 1
   fi
   return 0
 }
+# Record the EFFECTIVE sandbox decision for this run so the manifest can report
+# it regardless of which step writes the manifest (the pipeline spans processes,
+# but they share the namespaced QC_DIR). Best-effort; never fails a run.
+SANDBOX_EFFECTIVE="unknown"
+_record_sandbox() {                 # <true|false>
+  SANDBOX_EFFECTIVE="$1"
+  [[ -n "${QC_DIR:-}" ]] || return 0
+  mkdir -p "${QC_DIR}" 2>/dev/null || return 0
+  printf '%s\n' "$1" > "${QC_DIR}/.sandbox_effective" 2>/dev/null || true
+}
 # Returns 0 if compute should be sandboxed, 1 otherwise. Probes once, caches.
+# FAIL-CLOSED (P0.2): if a sandbox is requested (default/auto or forced) but the
+# host cannot provide one, ABORT rather than silently running unisolated. The
+# only ways to run WITHOUT isolation are explicit and recorded (sandboxed:false):
+#   HOMOPAN_SANDBOX_COMPUTE=0       opt out of sandboxing entirely
+#   HOMOPAN_ALLOW_UNSANDBOXED=1     auto-mode: run direct when probe fails
 sandbox_compute_active() {
   case "${HOMOPAN_SANDBOX_COMPUTE:-auto}" in
-    1) return 0 ;;
-    0) return 1 ;;
+    1)
+      if _probe_sandbox_ok; then _record_sandbox true; return 0; fi
+      die "sandbox-compute forced (HOMOPAN_SANDBOX_COMPUTE=1) but this host cannot create a sandbox. Fix unprivileged userns/bwrap, or set HOMOPAN_SANDBOX_COMPUTE=0 to opt out explicitly."
+      ;;
+    0) _record_sandbox false; return 1 ;;
   esac
+  # auto (default): fail-closed unless explicitly allowed to run unsandboxed.
   if [[ -z "${_sandbox_probe_cache}" ]]; then
     if _probe_sandbox_ok; then
       _sandbox_probe_cache=1
       log_info "sandbox-compute: enabled by default (probe OK). Disable with HOMOPAN_SANDBOX_COMPUTE=0."
-    else
+    elif [[ "${HOMOPAN_ALLOW_UNSANDBOXED:-0}" == "1" ]]; then
       _sandbox_probe_cache=0
+      log_warn "############################################################"
+      log_warn "# SANDBOX DISABLED: compute will run WITHOUT isolation.     #"
+      log_warn "# (HOMOPAN_ALLOW_UNSANDBOXED=1) -> manifest sandboxed:false #"
+      log_warn "# This is NOT a contained run.                              #"
+      log_warn "############################################################"
+    else
+      die "sandbox-compute: cannot create a sandbox on this host (unprivileged userns/bwrap unavailable) and fail-closed is the default. Choose ONE: (a) fix userns/bwrap; (b) HOMOPAN_ALLOW_UNSANDBOXED=1 to run unsandboxed explicitly (recorded sandboxed:false); (c) HOMOPAN_SANDBOX_COMPUTE=0 to opt out."
     fi
   fi
-  [[ "${_sandbox_probe_cache}" == "1" ]]
+  if [[ "${_sandbox_probe_cache}" == "1" ]]; then _record_sandbox true; return 0; fi
+  _record_sandbox false; return 1
 }
 
 # ── Cactus reproducibility seed (#10) ─────────────────────────────────────
@@ -569,15 +596,19 @@ run_cactus() {
   local retry_args=(--retryCount "${CACTUS_RETRY_COUNT:-2}")
   # Reproducibility seed (no-op if the container's cactus lacks --seed).
   local seed_args=(); mapfile -t seed_args < <(_cactus_seed_args)
+  # Extra cactus flags (determinism experiment): e.g. force single-threaded
+  # consolidation/lastz, the suspected non-determinism driver:
+  #   CACTUS_EXTRA_ARGS="--consCores 1 --lastzCores 1 --maxCores 1"
+  local extra_args=(); [[ -n "${CACTUS_EXTRA_ARGS:-}" ]] && read -r -a extra_args <<<"${CACTUS_EXTRA_ARGS}"
   # timeout must wrap a real binary (bash or apptainer), never a shell function.
   if sandbox_compute_active; then
     HOMOPAN_EXTRA_BINDS="${HOMOPAN_EXTRA_BINDS:-} $(realpath -m "${GENOMES_DIR}" 2>/dev/null) $(realpath -m "${TEST_GENOMES_DIR}" 2>/dev/null) $(realpath -m "${WORK_DIR}" 2>/dev/null)" \
     HOMOPAN_PASS_ENV="APPTAINER_CACHEDIR APPTAINER_TMPDIR ${HOMOPAN_PASS_ENV:-}" \
       timeout "${CACTUS_TIMEOUT:-172800}" bash "${SCRIPTS_DIR}/sandbox_run.sh" \
-        apptainer exec "${iso_args[@]}" "${bind_args[@]}" "${SIF}" cactus --binariesMode local "${retry_args[@]}" "${seed_args[@]}" "$@"
+        apptainer exec "${iso_args[@]}" "${bind_args[@]}" "${SIF}" cactus --binariesMode local "${retry_args[@]}" "${seed_args[@]}" "${extra_args[@]}" "$@"
   else
     timeout "${CACTUS_TIMEOUT:-172800}" \
-      apptainer exec "${iso_args[@]}" "${bind_args[@]}" "${SIF}" cactus --binariesMode local "${retry_args[@]}" "${seed_args[@]}" "$@"
+      apptainer exec "${iso_args[@]}" "${bind_args[@]}" "${SIF}" cactus --binariesMode local "${retry_args[@]}" "${seed_args[@]}" "${extra_args[@]}" "$@"
   fi
 }
 
@@ -795,6 +826,7 @@ write_run_manifest() {
     hal_test=""; [[ -f "${HAL_TEST}" ]] && hal_test=$(compute_sha256 "${HAL_TEST}")
     # auditable captures (meta)
     apptainer_v=$(apptainer --version 2>/dev/null)
+    sandboxed_eff=$(cat "${QC_DIR}/.sandbox_effective" 2>/dev/null || echo unknown)
     llm_session="${CLAUDE_CODE_SESSION_ID:-${HOMOPAN_SESSION_ID:-unknown}}"
     llm_agent="${AI_AGENT:-${HOMOPAN_AGENT:-${CLAUDE_AGENT:-unknown}}}"
     llm_effort="${CLAUDE_EFFORT:-unknown}"
@@ -838,7 +870,8 @@ write_run_manifest() {
       --arg run_id "${RUN_ID}" --arg ts "$(date -Iseconds)" --arg ns "${RUN_NS:-}" \
       --arg host "$(hostname)" --arg app "${apptainer_v}" \
       --arg sess "${llm_session}" --arg ag "${llm_agent}" --arg eff "${llm_effort}" --arg mdl "${llm_model}" \
-      '{run_id:$run_id, timestamp:$ts, namespace:$ns, host:$host, apptainer:$app,
+      --arg sb "${sandboxed_eff}" \
+      '{run_id:$run_id, timestamp:$ts, namespace:$ns, host:$host, apptainer:$app, sandboxed:$sb,
         llm:{session_id:$sess, agent:$ag, effort:$eff, model_id:$mdl,
              note:"LLM reasoning is non-deterministic and not repo-controllable; auditable only."}}')
 

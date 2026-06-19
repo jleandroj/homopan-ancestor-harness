@@ -67,7 +67,7 @@ echo -e "${BOLD}═════════════════════�
 
 run() {  # <ns>
   PATH="${TMP}/bin:${PATH}" HOMOPAN_RUN_NS="$1" CACTUS_SEED=42 CACTUS_TIMEOUT=60 \
-    HOMOPAN_SKIP_PREFLIGHT=1 HOMOPAN_IGNORE_TOOLCHAIN_LOCK=1 \
+    HOMOPAN_SKIP_PREFLIGHT=1 HOMOPAN_IGNORE_TOOLCHAIN_LOCK=1 HOMOPAN_SANDBOX_COMPUTE=0 \
     bash "${TMP}/scripts/run_all_test.sh" >"${TMP}/$1.log" 2>&1
 }
 run reproA && ok "run A completed" || { bad "run A failed"; tail -15 "${TMP}/reproA.log"|sed 's/^/      /'; }
