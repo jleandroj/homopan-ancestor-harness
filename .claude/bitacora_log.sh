@@ -26,8 +26,12 @@ trap 'printf "%s\tpid=%s\n" "$(date -Iseconds 2>/dev/null)" "$$" >> "${ALERT_FIL
 printf '%s\n' "$(date -Iseconds 2>/dev/null)" > "${SEQ_FILE}" 2>/dev/null || true
 
 # ── Find jq (optional -- bash fallback if missing) ──────────────────────
+for _jqc in "${HOMOPAN_JQ:-}" "${HOME}/miniconda3/envs/homopan_ancestor/bin/jq" "${HOME}/miniconda3/bin/jq" "${HOME}/anaconda3/envs/homopan_ancestor/bin/jq" /usr/bin/jq /bin/jq; do
+  if [[ -n "${_jqc}" && -x "${_jqc}" ]]; then export PATH="$(dirname "${_jqc}"):${PATH}"; break; fi
+done
+unset _jqc 2>/dev/null || true
 JQ_BIN=""
-if command -v jq &>/dev/null; then
+if command -v jq >/dev/null 2>&1; then   # capable jq prepended above (#15)
   JQ_BIN="jq"
 else
   for candidate in \
@@ -45,17 +49,6 @@ fi
 # ── Parse hook input ─────────────────────────────────────────────────────
 INPUT=$(cat)
 TIMESTAMP=$(date -Iseconds)
-if [[ -n "${JQ_BIN}" ]]; then
-  _SID=$(printf '%s' "${INPUT}" | "${JQ_BIN}" -r '.session_id // empty' 2>/dev/null || true)
-  _CWD=$(printf '%s' "${INPUT}" | "${JQ_BIN}" -r '.cwd // empty' 2>/dev/null || true)
-else
-  _SID=$(printf '%s' "${INPUT}" | grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*: *"//;s/"$//' || true)
-  _CWD=$(printf '%s' "${INPUT}" | grep -o '"cwd"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*: *"//;s/"$//' || true)
-fi
-RUN_ID_TAG="${HOMOPAN_RUN_ID:-unknown}"
-AGENT_TAG="${HOMOPAN_AGENT:-${CLAUDE_AGENT:-unknown}}"
-SESSION_TAG="${_SID:-${HOMOPAN_SESSION_ID:-${CLAUDE_SESSION_ID:-unknown}}}"
-CWD_TAG="${_CWD:-${HOMOPAN_CWD:-unknown}}"
 if [[ -n "${JQ_BIN}" ]]; then
   _SID=$(printf '%s' "${INPUT}" | "${JQ_BIN}" -r '.session_id // empty' 2>/dev/null || true)
   _CWD=$(printf '%s' "${INPUT}" | "${JQ_BIN}" -r '.cwd // empty' 2>/dev/null || true)
@@ -171,14 +164,12 @@ if [[ -n "${JQ_BIN}" ]]; then
     LINE=$("${JQ_BIN}" -cn \
       --arg ts "${TIMESTAMP}" --arg tool "${TOOL}" --arg detail "${DETAIL_SAFE}" \
       --arg run_id "${RUN_ID_TAG}" --arg agent "${AGENT_TAG}" --arg session "${SESSION_TAG}" --arg cwd "${CWD_TAG}" \
-      --arg run_id "${RUN_ID_TAG}" --arg agent "${AGENT_TAG}" --arg session "${SESSION_TAG}" --arg cwd "${CWD_TAG}" \
       --arg outcome "${OUTCOME}" --arg sha256_after "${FILE_HASH}" \
       '{timestamp: $ts, run_id: $run_id, agent: $agent, session: $session, cwd: $cwd, tool: $tool, detail: $detail, outcome: $outcome, sha256_after: $sha256_after}' \
       2>/dev/null || true)
   else
     LINE=$("${JQ_BIN}" -cn \
       --arg ts "${TIMESTAMP}" --arg tool "${TOOL}" --arg detail "${DETAIL_SAFE}" \
-      --arg run_id "${RUN_ID_TAG}" --arg agent "${AGENT_TAG}" --arg session "${SESSION_TAG}" --arg cwd "${CWD_TAG}" \
       --arg run_id "${RUN_ID_TAG}" --arg agent "${AGENT_TAG}" --arg session "${SESSION_TAG}" --arg cwd "${CWD_TAG}" \
       --arg outcome "${OUTCOME}" \
       '{timestamp: $ts, run_id: $run_id, agent: $agent, session: $session, cwd: $cwd, tool: $tool, detail: $detail, outcome: $outcome}' \
@@ -187,7 +178,6 @@ if [[ -n "${JQ_BIN}" ]]; then
 else
   # bash-pure JSON output
   TS_ESC=$(json_escape "${TIMESTAMP}")
-  RUN_ESC=$(json_escape "${RUN_ID_TAG}"); AG_ESC=$(json_escape "${AGENT_TAG}"); SE_ESC=$(json_escape "${SESSION_TAG}"); CW_ESC=$(json_escape "${CWD_TAG}")
   RUN_ESC=$(json_escape "${RUN_ID_TAG}"); AG_ESC=$(json_escape "${AGENT_TAG}"); SE_ESC=$(json_escape "${SESSION_TAG}"); CW_ESC=$(json_escape "${CWD_TAG}")
   TOOL_ESC=$(json_escape "${TOOL}")
   DETAIL_ESC=$(json_escape "${DETAIL_SAFE}")

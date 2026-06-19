@@ -163,8 +163,12 @@ done
 
 # jq: REQUIRED -- the gate parses hook JSON with it and fail-closes without it.
 # Treat as a hard error so a green init guarantees the gate can run (P3).
+for _jqc in "${HOMOPAN_JQ:-}" "${HOME}/miniconda3/envs/homopan_ancestor/bin/jq" "${HOME}/miniconda3/bin/jq" "${HOME}/anaconda3/envs/homopan_ancestor/bin/jq" /usr/bin/jq /bin/jq; do
+  if [[ -n "${_jqc}" && -x "${_jqc}" ]]; then export PATH="$(dirname "${_jqc}"):${PATH}"; break; fi
+done
+unset _jqc 2>/dev/null || true
 if command -v jq &>/dev/null; then
-  pass "jq: $(jq --version 2>/dev/null)"
+  pass "jq: $(jq --version 2>/dev/null) (capable build preferred #15)"
 elif [[ -x "${HOME}/miniconda3/envs/homopan_ancestor/bin/jq" ]]; then
   pass "jq: $(${HOME}/miniconda3/envs/homopan_ancestor/bin/jq --version 2>/dev/null) (in conda env)"
 else

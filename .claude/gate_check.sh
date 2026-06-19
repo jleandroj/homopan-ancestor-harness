@@ -82,14 +82,13 @@ bash_is_obfuscated() {
 # definitions win; remove the inline copies above once this is in place.
 source "${SCRIPT_DIR}/cmd_detector.sh"
 
-# ── Extracted command detector (#12) -- single source of truth, fuzzed in
-# tests/test_cmd_detector_fuzz.sh. Sourced AFTER the inline copy so the module
-# definitions win; remove the inline copies above once this is in place.
-source "${SCRIPT_DIR}/cmd_detector.sh"
-
 # ── jq check (fail-closed) ───────────────────────────────────────────────
+for _jqc in "${HOMOPAN_JQ:-}" "${HOME}/miniconda3/envs/homopan_ancestor/bin/jq" "${HOME}/miniconda3/bin/jq" "${HOME}/anaconda3/envs/homopan_ancestor/bin/jq" /usr/bin/jq /bin/jq; do
+  if [[ -n "${_jqc}" && -x "${_jqc}" ]]; then export PATH="$(dirname "${_jqc}"):${PATH}"; break; fi
+done
+unset _jqc 2>/dev/null || true
 if ! command -v jq &>/dev/null; then
-  # Try known conda locations
+  # Fallback: known conda locations (#15)
   for candidate in \
     "${HOME}/miniconda3/envs/homopan_ancestor/bin/jq" \
     "${HOME}/miniconda3/bin/jq" \

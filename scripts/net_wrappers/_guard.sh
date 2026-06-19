@@ -80,9 +80,6 @@ net_guard() {
   # wget follows redirects by default; pin it so only the vetted host is hit.
   [[ "$tool" == "wget" ]] && set -- --max-redirect=0 "$@"
 
-  # wget follows redirects by default; pin it so only the vetted host is hit.
-  [[ "$tool" == "wget" ]] && set -- --max-redirect=0 "$@"
-
   # Resolve the real tool, skipping this wrapper directory.
   IFS=: read -ra _p <<<"$PATH"
   for d in "${_p[@]}"; do
