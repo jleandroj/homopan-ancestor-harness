@@ -1,0 +1,34 @@
+# ── Large data (not for git) ─────────────────────────────────────────────
+genomes/
+raw/
+zips/
+test_genomes/
+
+# ── Container image (~425 MB) ───────────────────────────────────────────
+*.sif
+apptainer_cache/
+apptainer_tmp/
+
+# ── Pipeline working data ───────────────────────────────────────────────
+work/
+results/
+
+# ── Security / ephemeral ────────────────────────────────────────────────
+.claude/.gate_pass
+
+# ── Logs (bitacora may contain commands) ─────────────────────────────────
+logs/bitacora.jsonl
+
+# ── Archived old harness (reference only) ────────────────────────────────
+_old_harness_review/
+
+# ── Subproject with human-subject data ───────────────────────────────────
+il10_analisis/
+
+# ── OS / editor artifacts ───────────────────────────────────────────────
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/
+.idea/

@@ -1,0 +1,71 @@
+--- .claude/gate_check.sh	2026-06-17 14:37:57.334144902 -0400
++++ patches/gate_check.sh	2026-06-18 20:36:22.641133801 -0400
+@@ -12,6 +12,38 @@
+ CLAUDE_MD="${PROJECT_ROOT}/CLAUDE.md"
+ AGENTS_MD="${PROJECT_ROOT}/agents.md"
+ 
++# ── Bash write-protection (P0-a) ──────────────────────────────────────────
++# Best-effort detection of Bash commands that try to modify a protected
++# security file or forge the gate pass. This complements two stronger layers:
++#   (1) the Write/Edit/NotebookEdit hardline-deny below, and
++#   (2) the gate-pass hash: any actual change to the surface invalidates the
++#       pass and blocks every later tool call until 'bash init.sh' is re-run.
++# Absolute rule: ANY Bash reference to .gate_pass is denied (only init.sh may
++# write it). Obfuscated writes (base64|bash, eval) are out of scope here and
++# are caught after the fact by layer (2).
++bash_writes_protected() {
++  local c="$1"
++  local prot='(CLAUDE\.md|agents\.md|gate_check\.sh|bitacora_log\.sh|settings\.json|init\.sh|\.gate_pass)'
++
++  # 1. Never allow the agent to touch the gate pass via Bash.
++  grep -Eq '\.gate_pass' <<<"$c" && return 0
++
++  # 2. Redirection ( > or >> , optional fd / path prefix) into a protected file.
++  grep -Eq '(^|[^0-9])[0-9]*>>?[[:space:]]*([^[:space:]"'"'"';|&]*/)?'"$prot" <<<"$c" && return 0
++
++  # 3. In-place / copy / move / truncate utilities targeting a protected file.
++  grep -Eq '(^|[[:space:];&|(])(sed[[:space:]]+-i|perl[[:space:]]+-[A-Za-z]*i|awk[[:space:]]+-i|tee([[:space:]]+-a)?|cp|mv|dd|install|truncate|ln|chmod|chown|rm|shred)([[:space:]]|=).*'"$prot" <<<"$c" && return 0
++
++  # 4. Interpreter writing to a protected file (python/perl/ruby/node/php).
++  if grep -Eq '(python|perl|ruby|node|php)' <<<"$c" \
++     && grep -Eq "$prot" <<<"$c" \
++     && grep -Eq "(open\(|['\"]w['\"]|>>?|writeFile|O_WRONLY|O_CREAT)" <<<"$c"; then
++    return 0
++  fi
++
++  return 1
++}
++
+ # ── jq check (fail-closed) ───────────────────────────────────────────────
+ if ! command -v jq &>/dev/null; then
+   # Try known conda locations
+@@ -41,17 +73,27 @@
+ INPUT=$(cat)
+ TOOL=$(echo "${INPUT}" | jq -r '.tool_name // empty' 2>/dev/null || true)
+ 
+-# ── Always allow init.sh and Read operations ──────────────────────────────
+-# Allow Bash calls that run ONLY init.sh (exact match, not substring)
++# ── Bash handling ──────────────────────────────────────────────────────────
+ if [[ "${TOOL}" == "Bash" ]]; then
+   COMMAND=$(echo "${INPUT}" | jq -r '.tool_input.command // empty' 2>/dev/null || true)
+   COMMAND_TRIMMED=$(echo "${COMMAND}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
++
++  # Allow Bash calls that run ONLY init.sh (exact match, not substring)
+   if [[ "${COMMAND_TRIMMED}" == "bash init.sh" || \
+         "${COMMAND_TRIMMED}" == "bash ./init.sh" || \
+         "${COMMAND_TRIMMED}" == "cd ${PROJECT_ROOT} && bash init.sh" || \
+         "${COMMAND_TRIMMED}" == "cd ${PROJECT_ROOT} && bash ./init.sh" ]]; then
+     exit 0
+   fi
++
++  # Hardline: Bash must not write to protected security files or forge the pass.
++  # Applies even with a valid gate pass.
++  if bash_writes_protected "${COMMAND}"; then
++    echo "DENY: Bash command targets a protected security file or the gate pass." >&2
++    echo "Protected: CLAUDE.md, agents.md, gate_check.sh, bitacora_log.sh, settings.json, init.sh, .gate_pass" >&2
++    echo "These can only change by editing manually and re-running: bash init.sh" >&2
++    exit 2
++  fi
+ fi
+ 
+ # Read-only tools always allowed
