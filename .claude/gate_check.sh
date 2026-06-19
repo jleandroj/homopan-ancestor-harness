@@ -82,6 +82,11 @@ bash_is_obfuscated() {
 # definitions win; remove the inline copies above once this is in place.
 source "${SCRIPT_DIR}/cmd_detector.sh"
 
+# ── Extracted command detector (#12) -- single source of truth, fuzzed in
+# tests/test_cmd_detector_fuzz.sh. Sourced AFTER the inline copy so the module
+# definitions win; remove the inline copies above once this is in place.
+source "${SCRIPT_DIR}/cmd_detector.sh"
+
 # ── jq check (fail-closed) ───────────────────────────────────────────────
 if ! command -v jq &>/dev/null; then
   # Try known conda locations
