@@ -22,6 +22,8 @@ results/
 
 # ── Security / ephemeral ────────────────────────────────────────────────
 .claude/.gate_pass
+.claude/.posttool_error
+.claude/.posttool_seq
 
 # ── Logs (bitacora may contain commands) ─────────────────────────────────
 logs/

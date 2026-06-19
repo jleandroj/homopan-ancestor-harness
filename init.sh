@@ -250,6 +250,9 @@ HASH=$( { sha256sum "${SECURITY_FILES[@]}"; printf 'skills:%s\n' "${SKILLS_HASH}
 echo "${HASH}  $(date -Iseconds)" > "${GATE_PASS}"
 pass "Gate pass generated: ${HASH:0:16}..."
 
+# Fresh slate: clear any stale PostToolUse failure alert.
+rm -f "${CLAUDE_DIR}/.posttool_error" 2>/dev/null || true
+
 echo ""
 echo -e "${GREEN}${BOLD}════════════════════════════════════════${NC}"
 echo -e "${GREEN}${BOLD}  ALL CHECKS PASSED${NC}"

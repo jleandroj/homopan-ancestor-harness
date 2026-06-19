@@ -12,6 +12,10 @@ GATE_PASS="${PROJECT_ROOT}/.claude/.gate_pass"
 CLAUDE_MD="${PROJECT_ROOT}/CLAUDE.md"
 AGENTS_MD="${PROJECT_ROOT}/agents.md"
 
+# Keep the external audit log in a throwaway path (don't pollute $HOME).
+export HOMOPAN_AUDIT_LOG="${PROJECT_ROOT}/logs/audit_test_$$.jsonl"
+trap 'rm -f "${HOMOPAN_AUDIT_LOG}" "${HOMOPAN_AUDIT_LOG}.lock"' EXIT
+
 # ── Colors ────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -267,6 +271,13 @@ if (( LINES >= 2 )); then
   pass "Bitacora accumulated multiple entries"
 else
   fail "Bitacora should have 2+ entries, has ${LINES}"
+fi
+
+# External append-only audit log mirrors entries (P1 batch C)
+if [[ -s "${HOMOPAN_AUDIT_LOG}" ]]; then
+  pass "External audit log written"
+else
+  fail "External audit log missing"
 fi
 
 # ── Test 9: Hardline deny — security files blocked even with valid pass ────

@@ -12,6 +12,19 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LOGFILE="${PROJECT_ROOT}/logs/bitacora.jsonl"
 mkdir -p "$(dirname "${LOGFILE}")"
 
+# External audit log: lives OUTSIDE the repo so it survives a repo wipe and can
+# be made truly append-only by an admin (`chattr +a`). Default in $HOME.
+AUDIT_LOG="${HOMOPAN_AUDIT_LOG:-${HOME}/.homopan_audit.jsonl}"
+mkdir -p "$(dirname "${AUDIT_LOG}")" 2>/dev/null || true
+ALERT_FILE="${SCRIPT_DIR}/.posttool_error"
+SEQ_FILE="${SCRIPT_DIR}/.posttool_seq"
+
+# PostToolUse is fail-open (it must never block tools), so failures are silent.
+# Leave a marker on any internal error; the PreToolUse gate surfaces it. Also
+# drop a heartbeat each run so a stalled logger is detectable.
+trap 'printf "%s\tpid=%s\n" "$(date -Iseconds 2>/dev/null)" "$$" >> "${ALERT_FILE}" 2>/dev/null || true' ERR
+printf '%s\n' "$(date -Iseconds 2>/dev/null)" > "${SEQ_FILE}" 2>/dev/null || true
+
 # ── Find jq (optional -- bash fallback if missing) ──────────────────────
 JQ_BIN=""
 if command -v jq &>/dev/null; then
@@ -179,8 +192,10 @@ fi
 if [[ -n "${LINE}" ]]; then
   if command -v flock &>/dev/null; then
     ( flock 9; printf '%s\n' "${LINE}" >> "${LOGFILE}" ) 9>"${LOGFILE}.lock" 2>/dev/null || true
+    ( flock 9; printf '%s\n' "${LINE}" >> "${AUDIT_LOG}" ) 9>"${AUDIT_LOG}.lock" 2>/dev/null || true
   else
     printf '%s\n' "${LINE}" >> "${LOGFILE}" 2>/dev/null || true
+    printf '%s\n' "${LINE}" >> "${AUDIT_LOG}" 2>/dev/null || true
   fi
 fi
 

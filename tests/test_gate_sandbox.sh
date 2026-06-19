@@ -192,6 +192,17 @@ echo "# tampered boundary" >> "${SBOX}/scripts/sandbox_run.sh"
 expect 1 "$(bash_input 'echo hi')"                            "stale DENY after editing sandbox_run.sh"
 gen_pass   # restore validity for any later cases
 
+# ── 13. PostToolUse failure alert (non-blocking) ──────────────────────────
+echo ""; echo -e "${BOLD}13. PostToolUse failure alert${NC}"
+printf 'x pid=1\n' > "${SBOX}/.claude/.posttool_error"
+err=$(printf '{"tool_name":"Read","tool_input":{}}' | bash "${GATE}" 2>&1 >/dev/null); rc=$?
+if grep -q "previous PostToolUse logging reported an error" <<<"${err}" && (( rc == 0 )); then
+  pass "gate warns about prior PostToolUse failure (non-blocking)"
+else
+  fail "expected non-blocking WARN (rc=${rc})"
+fi
+rm -f "${SBOX}/.claude/.posttool_error"
+
 # ── Summary ───────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}════════════════════════════════════════${NC}"

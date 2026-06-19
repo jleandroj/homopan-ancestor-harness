@@ -17,6 +17,11 @@ GATE_PASS="${SCRIPT_DIR}/.gate_pass"
 CLAUDE_MD="${PROJECT_ROOT}/CLAUDE.md"
 AGENTS_MD="${PROJECT_ROOT}/agents.md"
 
+# Non-blocking alert: surface a prior PostToolUse logging failure.
+if [[ -s "${SCRIPT_DIR}/.posttool_error" ]]; then
+  echo "WARN: previous PostToolUse logging reported an error (${SCRIPT_DIR}/.posttool_error); audit log may be incomplete." >&2
+fi
+
 # ── Bash write-protection (P0-a) ──────────────────────────────────────────
 # Best-effort detection of Bash commands that try to modify a protected
 # security file or forge the gate pass. This complements two stronger layers:
