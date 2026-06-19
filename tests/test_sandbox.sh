@@ -61,6 +61,13 @@ probe="${SRC_ROOT}/work/.sandbox_write_probe.$$"
 bash "${SB}" bash -c "echo ok > '${probe}'" 2>/dev/null
 [[ -f "${probe}" ]] && { pass "work dir writable inside sandbox"; rm -f "${probe}"; } || fail "work dir not writable inside sandbox"
 
+# ── 4. Fail-closed default (no unsandboxed fallback) ──────────────────────
+echo ""; echo -e "${BOLD}4. Fail-closed default${NC}"
+out=$(HOMOPAN_BWRAP_BIN=__no_such_bwrap__ bash "${SB}" /bin/true 2>&1); rc=$?
+(( rc == 3 )) && pass "refuses to run when bwrap unavailable (exit 3)" || fail "should fail-closed without bwrap (rc=${rc})"
+HOMOPAN_BWRAP_BIN=__no_such_bwrap__ HOMOPAN_ALLOW_UNSANDBOXED=1 bash "${SB}" /bin/true 2>/dev/null \
+  && pass "HOMOPAN_ALLOW_UNSANDBOXED=1 permits unsandboxed run" || fail "ALLOW_UNSANDBOXED should permit run"
+
 echo ""
 echo -e "${BOLD}════════════════════════════════════════${NC}"
 echo -e "${BOLD}  Results: ${PASSED} passed, ${FAILED} failed${NC}"

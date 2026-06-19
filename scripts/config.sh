@@ -291,6 +291,21 @@ acquire_step_lock() {
 }
 
 # ── Container wrappers ───────────────────────────────────────────────────
+# Optionally route the container runtime through the OS sandbox (EXPERIMENTAL).
+# HOMOPAN_SANDBOX_COMPUTE=1 runs apptainer under scripts/sandbox_run.sh with the
+# data dirs bound and (by default) no network. NOTE: nested apptainer-inside-
+# bubblewrap can require host config (nested user namespaces); leave this OFF if
+# your apptainer cannot run nested. Default OFF -> behaviour unchanged.
+_apptainer() {
+  if [[ "${HOMOPAN_SANDBOX_COMPUTE:-0}" == "1" ]]; then
+    HOMOPAN_EXTRA_BINDS="${HOMOPAN_EXTRA_BINDS:-} ${GENOMES_DIR} ${TEST_GENOMES_DIR} ${WORK_DIR}" \
+    HOMOPAN_PASS_ENV="APPTAINER_CACHEDIR APPTAINER_TMPDIR ${HOMOPAN_PASS_ENV:-}" \
+      bash "${SCRIPTS_DIR}/sandbox_run.sh" apptainer "$@"
+  else
+    apptainer "$@"
+  fi
+}
+
 run_in_container() {
   [[ -f "${SIF}" ]] || die "Container not found: $(sanitize_path "${SIF}")"
   local bind_args=("--bind" "${PROJECT_ROOT}:${PROJECT_ROOT}")
@@ -298,7 +313,7 @@ run_in_container() {
   if [[ "${WORK_DIR}" != "${PROJECT_ROOT}"* ]]; then
     bind_args+=("--bind" "${WORK_DIR}:${WORK_DIR}")
   fi
-  apptainer exec "${bind_args[@]}" "${SIF}" "$@"
+  _apptainer exec "${bind_args[@]}" "${SIF}" "$@"
 }
 
 run_cactus() {
@@ -307,10 +322,16 @@ run_cactus() {
   if [[ "${WORK_DIR}" != "${PROJECT_ROOT}"* ]]; then
     bind_args+=("--bind" "${WORK_DIR}:${WORK_DIR}")
   fi
-  # timeout is applied HERE (it must wrap a real binary; `timeout run_cactus`
-  # would fail because run_cactus is a shell function). Callers check exit 124.
-  timeout "${CACTUS_TIMEOUT:-172800}" \
-    apptainer exec "${bind_args[@]}" "${SIF}" cactus --binariesMode local "$@"
+  # timeout must wrap a real binary (bash or apptainer), never a shell function.
+  if [[ "${HOMOPAN_SANDBOX_COMPUTE:-0}" == "1" ]]; then
+    HOMOPAN_EXTRA_BINDS="${HOMOPAN_EXTRA_BINDS:-} ${GENOMES_DIR} ${TEST_GENOMES_DIR} ${WORK_DIR}" \
+    HOMOPAN_PASS_ENV="APPTAINER_CACHEDIR APPTAINER_TMPDIR ${HOMOPAN_PASS_ENV:-}" \
+      timeout "${CACTUS_TIMEOUT:-172800}" bash "${SCRIPTS_DIR}/sandbox_run.sh" \
+        apptainer exec "${bind_args[@]}" "${SIF}" cactus --binariesMode local "$@"
+  else
+    timeout "${CACTUS_TIMEOUT:-172800}" \
+      apptainer exec "${bind_args[@]}" "${SIF}" cactus --binariesMode local "$@"
+  fi
 }
 
 run_halStats()    { run_in_container halStats "$@"; }

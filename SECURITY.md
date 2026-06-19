@@ -9,8 +9,12 @@ and which are defense-in-depth, so "secure/prod" claims stay honest.
    under **bubblewrap** with a private network namespace (`--unshare-net`, **no
    egress** by default) and a read-only root with only the project + work dir
    writable. This is the only layer that actually *contains* a hostile process.
+   - **Fail-closed by default:** if `bwrap` is missing it refuses to run; set
+     `HOMOPAN_ALLOW_UNSANDBOXED=1` to override.
    - Enable network deliberately: `HOMOPAN_ALLOW_NET=1`.
-   - Refuse to run unsandboxed: `HOMOPAN_REQUIRE_SANDBOX=1`.
+   - Route the Cactus/HAL compute through the sandbox (EXPERIMENTAL):
+     `HOMOPAN_SANDBOX_COMPUTE=1` (nested apptainer-in-bwrap may need host
+     userns config; off by default so the pipeline isn't broken).
    - True per-host egress allowlisting needs root/iptables or a filtering proxy
      (not available here without sudo). When network IS shared, the tool-level
      wrappers in `scripts/net_wrappers/` (prepend to `PATH`) enforce
