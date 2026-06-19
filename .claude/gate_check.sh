@@ -152,7 +152,15 @@ for sf in "${SECURITY_FILES[@]}"; do
   fi
 done
 
-CURRENT_HASH=$(sha256sum "${SECURITY_FILES[@]}" 2>/dev/null | sha256sum | cut -d' ' -f1)
+# Fold in the skills/ tree (must match init.sh exactly).
+SKILLS_DIR="${SCRIPT_DIR}/skills"
+if [[ -d "${SKILLS_DIR}" ]]; then
+  SKILLS_HASH=$(find "${SKILLS_DIR}" -type f -print0 | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1)
+else
+  SKILLS_HASH="none"
+fi
+
+CURRENT_HASH=$( { sha256sum "${SECURITY_FILES[@]}"; printf 'skills:%s\n' "${SKILLS_HASH}"; } 2>/dev/null | sha256sum | cut -d' ' -f1)
 STORED_HASH=$(head -1 "${GATE_PASS}" | cut -d' ' -f1)
 
 if [[ "${CURRENT_HASH}" != "${STORED_HASH}" ]]; then

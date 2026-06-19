@@ -48,6 +48,8 @@ sanitize() {
     -e 's/xox[baprs]-[A-Za-z0-9-]{8,}/<REDACTED_SLACK_TOKEN>/g' \
     -e 's/sk-[A-Za-z0-9]{20,}/<REDACTED_API_KEY>/g' \
     -e 's/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}/<REDACTED_JWT>/g' \
+    -e 's/AIza[0-9A-Za-z_-]{35}/<REDACTED_GCP_KEY>/g' \
+    -e 's/-----BEGIN[A-Z ]*PRIVATE KEY-----/<REDACTED_PRIVATE_KEY>/g' \
     -e 's/([Aa]uthorization:[[:space:]]*[Bb]earer[[:space:]]+)[A-Za-z0-9._-]+/\1<REDACTED>/g' \
     -e 's/(([Pp]assword|[Pp]asswd|[Tt]oken|[Ss]ecret|[Aa]pi[_-]?[Kk]ey)[[:space:]]*[=:][[:space:]]*)[^[:space:]"'"'"'\&]+/\1<REDACTED>/g' \
     2>/dev/null)
@@ -95,6 +97,12 @@ else
       ;;
   esac
 fi
+
+# ── Only log MUTATING tools (P3); skip Read/Glob/Grep/etc. ────────────────
+case "${TOOL}" in
+  Write|Edit|NotebookEdit|Bash) : ;;
+  *) exit 0 ;;
+esac
 
 DETAIL_SAFE=$(sanitize "${DETAIL}")
 
@@ -150,6 +158,15 @@ else
   else
     LINE=$(printf '{"timestamp":"%s","tool":"%s","detail":"%s","outcome":"%s"}' \
       "${TS_ESC}" "${TOOL_ESC}" "${DETAIL_ESC}" "${OUTCOME_ESC}")
+  fi
+fi
+
+# ── Rotate when large (keep one previous generation, P3) ──────────────────
+LOG_MAX_BYTES=${BITACORA_MAX_BYTES:-5242880}   # 5 MB
+if [[ -f "${LOGFILE}" ]]; then
+  _sz=$(stat -c %s "${LOGFILE}" 2>/dev/null || wc -c < "${LOGFILE}" 2>/dev/null || echo 0)
+  if (( _sz > LOG_MAX_BYTES )); then
+    mv -f "${LOGFILE}" "${LOGFILE}.1" 2>/dev/null || true
   fi
 fi
 

@@ -37,14 +37,20 @@ cp "${PROJECT_ROOT}/init.sh"                 "${SBOX}/init.sh"
 GATE="${SBOX}/.claude/gate_check.sh"
 GATE_PASS="${SBOX}/.claude/.gate_pass"
 
-# Same 6-file surface and hashing scheme as init.sh.
+# Same surface + skills-tree fold as init.sh (sandbox has no skills/ -> "none").
 gen_pass() {
   local files=(
     "${SBOX}/CLAUDE.md" "${SBOX}/agents.md"
     "${SBOX}/.claude/gate_check.sh" "${SBOX}/.claude/bitacora_log.sh"
     "${SBOX}/.claude/settings.json" "${SBOX}/init.sh"
   )
-  local h; h=$(sha256sum "${files[@]}" | sha256sum | cut -d' ' -f1)
+  local sh
+  if [[ -d "${SBOX}/.claude/skills" ]]; then
+    sh=$(find "${SBOX}/.claude/skills" -type f -print0 | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1)
+  else
+    sh="none"
+  fi
+  local h; h=$( { sha256sum "${files[@]}"; printf 'skills:%s\n' "${sh}"; } | sha256sum | cut -d' ' -f1)
   echo "${h}  sandbox" > "${GATE_PASS}"
 }
 

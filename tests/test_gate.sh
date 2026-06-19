@@ -149,13 +149,24 @@ SECURITY_FILES=(
   "${PROJECT_ROOT}/init.sh"
 )
 
+# Pass hash must match init.sh exactly: 6 surface files + skills/ tree fold.
+gen_hash() {
+  local sh
+  if [[ -d "${CLAUDE_DIR}/skills" ]]; then
+    sh=$(find "${CLAUDE_DIR}/skills" -type f -print0 | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1)
+  else
+    sh="none"
+  fi
+  { sha256sum "${SECURITY_FILES[@]}"; printf 'skills:%s\n' "${sh}"; } 2>/dev/null | sha256sum | cut -d' ' -f1
+}
+
 ALL_SEC_EXIST=true
 for sf in "${SECURITY_FILES[@]}"; do
   [[ -f "${sf}" ]] || ALL_SEC_EXIST=false
 done
 
 if $ALL_SEC_EXIST; then
-  HASH=$(sha256sum "${SECURITY_FILES[@]}" 2>/dev/null | sha256sum | cut -d' ' -f1)
+  HASH=$(gen_hash)
   echo "${HASH}  $(date -Iseconds)" > "${GATE_PASS}"
 
   INPUT=$(make_bash_input "echo hello")
@@ -213,7 +224,8 @@ BITACORA_FILE="${PROJECT_ROOT}/logs/bitacora.jsonl"
 # Clear previous entries for clean test
 > "${BITACORA_FILE}" 2>/dev/null || true
 
-INPUT=$(printf '{"tool_name":"Read","tool_input":{"file_path":"/tmp/test.txt"}}')
+# Use a mutating tool (Write); Read is intentionally filtered out (P3).
+INPUT=$(printf '{"tool_name":"Write","tool_input":{"file_path":"/tmp/test.txt"}}')
 echo "${INPUT}" | bash "${BITACORA}" 2>/dev/null
 
 if [[ -f "${BITACORA_FILE}" ]] && [[ -s "${BITACORA_FILE}" ]]; then
@@ -252,7 +264,7 @@ echo -e "${BOLD}9. Hardline deny (security files always blocked)${NC}"
 
 # Ensure valid gate pass exists
 if $ALL_SEC_EXIST; then
-  HASH=$(sha256sum "${SECURITY_FILES[@]}" 2>/dev/null | sha256sum | cut -d' ' -f1)
+  HASH=$(gen_hash)
   echo "${HASH}  $(date -Iseconds)" > "${GATE_PASS}"
 
   PROTECTED_FILES=(
@@ -313,15 +325,15 @@ else
   fail "Bitacora missing sha256_after for Write"
 fi
 
-# Verify Read does NOT get a hash (no file modification)
+# Verify Read is NOT logged at all (non-mutating tools are filtered, P3)
+LINES_BEFORE=$(wc -l < "${BITACORA_FILE}")
 READ_JSON=$(printf '{"tool_name":"Read","tool_input":{"file_path":"%s"}}' "${HASH_TEST_FILE}")
 echo "${READ_JSON}" | bash "${BITACORA}" 2>/dev/null
-
-LAST_LINE=$(tail -1 "${BITACORA_FILE}")
-if echo "${LAST_LINE}" | grep -q '"sha256_after"'; then
-  fail "Bitacora should NOT include sha256_after for Read"
+LINES_AFTER=$(wc -l < "${BITACORA_FILE}")
+if (( LINES_AFTER == LINES_BEFORE )); then
+  pass "Bitacora does not log Read (non-mutating filtered)"
 else
-  pass "Bitacora correctly omits sha256_after for Read"
+  fail "Bitacora should not log Read (mutating-only filter)"
 fi
 
 # Verify Bash does NOT get a hash

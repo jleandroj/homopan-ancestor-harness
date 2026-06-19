@@ -225,7 +225,16 @@ if (( MISSING_SEC > 0 )); then
   exit 1
 fi
 
-HASH=$(sha256sum "${SECURITY_FILES[@]}" 2>/dev/null | sha256sum | cut -d' ' -f1)
+# Fold in the whole skills/ tree so any skill change invalidates the pass.
+SKILLS_DIR="${CLAUDE_DIR}/skills"
+if [[ -d "${SKILLS_DIR}" ]]; then
+  SKILLS_HASH=$(find "${SKILLS_DIR}" -type f -print0 | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1)
+else
+  SKILLS_HASH="none"
+fi
+info "  skills/ tree: ${SKILLS_HASH:0:16}..."
+
+HASH=$( { sha256sum "${SECURITY_FILES[@]}"; printf 'skills:%s\n' "${SKILLS_HASH}"; } 2>/dev/null | sha256sum | cut -d' ' -f1)
 echo "${HASH}  $(date -Iseconds)" > "${GATE_PASS}"
 pass "Gate pass generated: ${HASH:0:16}..."
 
