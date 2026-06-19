@@ -1,8 +1,15 @@
 # ── Large data (not for git) ─────────────────────────────────────────────
+# Trailing-slash patterns don't match symlinks-to-dirs, so anchor the
+# symlinked data names explicitly (root-anchored) as well.
 genomes/
 raw/
 zips/
 test_genomes/
+/genomes
+/test_genomes
+/results
+/primates.seqfile
+/primates.test.seqfile
 
 # ── Container image (~425 MB) ───────────────────────────────────────────
 *.sif

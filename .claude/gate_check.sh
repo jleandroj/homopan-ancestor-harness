@@ -4,6 +4,11 @@
 # If jq is not available or gate pass is missing/stale -> DENY.
 set -euo pipefail
 
+# ── Fail-closed: any unexpected error in this gate => DENY (exit 2) ────────
+# Without this, an uncaught error could exit non-2 and be treated as
+# non-blocking by the hook runner (fail-open). Explicit deny on ERR.
+trap 'echo "DENY: gate_check.sh internal error (fail-closed)." >&2; exit 2' ERR
+
 # ── Derive project root ──────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -19,8 +24,8 @@ AGENTS_MD="${PROJECT_ROOT}/agents.md"
 #   (2) the gate-pass hash: any actual change to the surface invalidates the
 #       pass and blocks every later tool call until 'bash init.sh' is re-run.
 # Absolute rule: ANY Bash reference to .gate_pass is denied (only init.sh may
-# write it). Obfuscated writes (base64|bash, eval) are out of scope here and
-# are caught after the fact by layer (2).
+# write it). Obfuscated execution (base64|sh, eval, curl|sh) is handled
+# separately by bash_is_obfuscated() below.
 bash_writes_protected() {
   local c="$1"
   local prot='(CLAUDE\.md|agents\.md|gate_check\.sh|bitacora_log\.sh|settings\.json|init\.sh|\.gate_pass)'
@@ -41,6 +46,20 @@ bash_writes_protected() {
     return 0
   fi
 
+  return 1
+}
+
+# ── Obfuscated / remote execution denylist (NEW-P1) ───────────────────────
+# Decode-and-run, eval, and fetch-and-run pipelines defeat the static
+# write-protection above, so deny them outright in agent Bash calls.
+bash_is_obfuscated() {
+  local c="$1"
+  # base64/xxd/openssl/gpg decoded then piped to a shell
+  grep -Eq '(base64|xxd|openssl[[:space:]]+enc|gpg)[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh\b' <<<"$c" && return 0
+  # remote fetch piped to a shell (egress + exec)
+  grep -Eq '(curl|wget|fetch)\b[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh\b' <<<"$c" && return 0
+  # eval of any kind
+  grep -Eq '(^|[[:space:];&|(])eval([[:space:]]|$)' <<<"$c" && return 0
   return 1
 }
 
@@ -92,6 +111,12 @@ if [[ "${TOOL}" == "Bash" ]]; then
     echo "DENY: Bash command targets a protected security file or the gate pass." >&2
     echo "Protected: CLAUDE.md, agents.md, gate_check.sh, bitacora_log.sh, settings.json, init.sh, .gate_pass" >&2
     echo "These can only change by editing manually and re-running: bash init.sh" >&2
+    exit 2
+  fi
+
+  # Hardline: no decode/fetch-and-execute or eval.
+  if bash_is_obfuscated "${COMMAND}"; then
+    echo "DENY: obfuscated/remote-exec Bash pattern (base64|sh, curl|sh, eval)." >&2
     exit 2
   fi
 fi

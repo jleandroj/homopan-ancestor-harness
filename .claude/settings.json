@@ -1,8 +1,31 @@
 {
+  "permissions": {
+    "deny": [
+      "Read(./il10_analisis/**)",
+      "Edit(./il10_analisis/**)",
+      "Write(./il10_analisis/**)",
+      "Write(./CLAUDE.md)",
+      "Edit(./CLAUDE.md)",
+      "Write(./agents.md)",
+      "Edit(./agents.md)",
+      "Write(./init.sh)",
+      "Edit(./init.sh)",
+      "Write(./.claude/gate_check.sh)",
+      "Edit(./.claude/gate_check.sh)",
+      "Write(./.claude/bitacora_log.sh)",
+      "Edit(./.claude/bitacora_log.sh)",
+      "Write(./.claude/settings.json)",
+      "Edit(./.claude/settings.json)",
+      "Write(./.claude/.gate_pass)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(nc:*)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Write|Edit|NotebookEdit|Bash",
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
