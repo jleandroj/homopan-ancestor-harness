@@ -134,7 +134,8 @@ trap _run_cleanup EXIT INT TERM
 #
 # Fingerprint strategy per file:
 #   - small files (< 50 MB): full SHA256 content hash (robust)
-#   - large files (genomes, HAL): path:size:mtime (fast; avoids hashing GBs)
+#   - large files (genomes, HAL): size + mtime + sampled content hash of the
+#     first & last 1 MiB (fast; more robust than size:mtime alone)
 
 _FP_CONTENT_MAX=$((50 * 1024 * 1024))   # 50 MB
 
@@ -149,7 +150,12 @@ _input_fingerprint() {
   if (( sz < _FP_CONTENT_MAX )); then
     printf '%s:%s\n' "$f" "$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)"
   else
-    printf '%s:%s:%s\n' "$f" "$sz" "$(file_mtime_epoch "$f")"
+    # Large file: size + mtime + sampled content (first & last 1 MiB). Reads
+    # ~2 MiB instead of GBs, yet catches content edits in the sampled regions
+    # that size:mtime alone would miss.
+    local sample
+    sample=$( { head -c 1048576 "$f"; tail -c 1048576 "$f"; } 2>/dev/null | sha256sum | cut -d' ' -f1)
+    printf '%s:%s:%s:%s\n' "$f" "$sz" "$(file_mtime_epoch "$f")" "${sample}"
   fi
 }
 
@@ -319,7 +325,10 @@ run_in_container() {
   if [[ "${WORK_DIR}" != "${PROJECT_ROOT}"* ]]; then
     bind_args+=("--bind" "${WORK_DIR}:${WORK_DIR}")
   fi
-  _apptainer exec "${bind_args[@]}" "${SIF}" "$@"
+  local iso_args=()
+  [[ "${HOMOPAN_APPTAINER_ISOLATE:-0}" == "1" ]] && iso_args+=(--containall --no-home --cleanenv)
+  [[ "${HOMOPAN_APPTAINER_NONET:-0}" == "1" ]]   && iso_args+=(--net --network none)
+  _apptainer exec "${iso_args[@]}" "${bind_args[@]}" "${SIF}" "$@"
 }
 
 run_cactus() {
@@ -328,15 +337,18 @@ run_cactus() {
   if [[ "${WORK_DIR}" != "${PROJECT_ROOT}"* ]]; then
     bind_args+=("--bind" "${WORK_DIR}:${WORK_DIR}")
   fi
+  local iso_args=()
+  [[ "${HOMOPAN_APPTAINER_ISOLATE:-0}" == "1" ]] && iso_args+=(--containall --no-home --cleanenv)
+  [[ "${HOMOPAN_APPTAINER_NONET:-0}" == "1" ]]   && iso_args+=(--net --network none)
   # timeout must wrap a real binary (bash or apptainer), never a shell function.
   if [[ "${HOMOPAN_SANDBOX_COMPUTE:-0}" == "1" ]]; then
     HOMOPAN_EXTRA_BINDS="${HOMOPAN_EXTRA_BINDS:-} ${GENOMES_DIR} ${TEST_GENOMES_DIR} ${WORK_DIR}" \
     HOMOPAN_PASS_ENV="APPTAINER_CACHEDIR APPTAINER_TMPDIR ${HOMOPAN_PASS_ENV:-}" \
       timeout "${CACTUS_TIMEOUT:-172800}" bash "${SCRIPTS_DIR}/sandbox_run.sh" \
-        apptainer exec "${bind_args[@]}" "${SIF}" cactus --binariesMode local "$@"
+        apptainer exec "${iso_args[@]}" "${bind_args[@]}" "${SIF}" cactus --binariesMode local "$@"
   else
     timeout "${CACTUS_TIMEOUT:-172800}" \
-      apptainer exec "${bind_args[@]}" "${SIF}" cactus --binariesMode local "$@"
+      apptainer exec "${iso_args[@]}" "${bind_args[@]}" "${SIF}" cactus --binariesMode local "$@"
   fi
 }
 

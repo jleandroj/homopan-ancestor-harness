@@ -15,6 +15,10 @@ and which are defense-in-depth, so "secure/prod" claims stay honest.
    - Route the Cactus/HAL compute through the sandbox (EXPERIMENTAL):
      `HOMOPAN_SANDBOX_COMPUTE=1` (nested apptainer-in-bwrap may need host
      userns config; off by default so the pipeline isn't broken).
+   - Tighten the apptainer container itself (opt-in):
+     `HOMOPAN_APPTAINER_ISOLATE=1` adds `--containall --no-home --cleanenv`;
+     `HOMOPAN_APPTAINER_NONET=1` adds `--net --network none`. Off by default
+     (these need host support and can break some apptainer setups).
    - True per-host egress allowlisting needs root/iptables or a filtering proxy
      (not available here without sudo). When network IS shared, the tool-level
      wrappers in `scripts/net_wrappers/` (prepend to `PATH`) enforce
@@ -22,8 +26,9 @@ and which are defense-in-depth, so "secure/prod" claims stay honest.
      kernel boundary (a determined process can bypass a PATH shim).
 
 2. **PreToolUse gate (`.claude/gate_check.sh`) — defense-in-depth, fail-closed.**
-   - Content hash of the contract surface **+ the `skills/` tree**: any change
-     invalidates the gate pass until `bash init.sh` re-runs.
+   - Content hash of the contract surface **+ the `skills/` tree + the boundary
+     scripts** (`sandbox_run.sh`, `net_wrappers/`, `egress_allowlist.txt`): any
+     change invalidates the gate pass until `bash init.sh` re-runs.
    - Hardline-denies Write/Edit/NotebookEdit to contract files; denies Bash
      redirects/`tee`/`cp`/`sed -i`/interpreter-writes into them and any
      `.gate_pass` reference; denies `base64|sh`, `curl|sh`, and non-conda

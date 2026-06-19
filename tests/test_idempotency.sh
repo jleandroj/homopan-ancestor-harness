@@ -27,11 +27,13 @@ mkdir -p "${TARGETS_DIR}"
 SMALL_INPUT="${SANDBOX}/small_input.txt"
 echo "original content" > "${SMALL_INPUT}"
 
-# Override the input map for two synthetic steps (redefining is allowed in bash).
+# Override the input map for synthetic steps (redefining is allowed in bash).
+BIG_INPUT="${SANDBOX}/big.bin"
 step_inputs() {
   case "$1" in
     teststep)    printf '%s\n' "${SMALL_INPUT}" ;;
     litstep)     printf '%s\n' "lit:TOKEN=${TEST_TOKEN:-A}" ;;
+    bigstep)     printf '%s\n' "${BIG_INPUT}" ;;
     nodepsstep)  : ;;   # existence-only
     *)           : ;;
   esac
@@ -84,6 +86,14 @@ if grep -qE '^inputs_sha256=[0-9a-f]{64}$' "${TARGETS_DIR}/teststep.done"; then
 else
   fail "marker missing inputs_sha256 line"
 fi
+
+# ── 8. Large file: sampled fingerprint detects content edits ──────────────
+echo ""; echo -e "${BOLD}8. Large-file sampled fingerprint${NC}"
+head -c 60000000 /dev/zero > "${BIG_INPUT}" 2>/dev/null   # 60 MB (> 50 MB threshold)
+mark_done bigstep >/dev/null
+if is_done bigstep >/dev/null 2>&1; then pass "large file done after mark"; else fail "large file should be done"; fi
+printf 'X' | dd of="${BIG_INPUT}" bs=1 seek=0 conv=notrunc 2>/dev/null   # edit first byte (sampled head)
+if is_done bigstep >/dev/null 2>&1; then fail "edit in large file should invalidate (sampled)"; else pass "large-file content edit detected"; fi
 
 # ── Summary ───────────────────────────────────────────────────────────────
 echo ""
