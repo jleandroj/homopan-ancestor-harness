@@ -23,13 +23,26 @@ if [[ -d "${JS_FULL}" ]]; then
     rm -rf "${JS_FULL}"
     [[ -f "${HAL_FULL}" ]] && rm -f "${HAL_FULL}"
   else
-    log_info "Attempting --restart from existing jobstore"
-    log_info "(To force fresh run: CACTUS_CLEAN=1 bash scripts/06_run_full_cactus.sh)"
-    RESTART_FLAG=(--restart)
+    # Guard: only --restart if the jobstore was built from the SAME inputs.
+    js_rc=0; check_jobstore_inputs "${JS_FULL}" "06_run_full_cactus" || js_rc=$?
+    case "${js_rc}" in
+      0) log_info "Jobstore inputs match current seqfile/tree; attempting --restart"
+         log_info "(To force fresh run: CACTUS_CLEAN=1 bash scripts/06_run_full_cactus.sh)"
+         RESTART_FLAG=(--restart) ;;
+      2) log_warn "Jobstore has no inputs record (legacy); restarting but cannot verify it matches current inputs."
+         log_warn "If the result looks wrong, re-run with CACTUS_CLEAN=1."
+         RESTART_FLAG=(--restart) ;;
+      *) die "Jobstore at $(sanitize_path "${JS_FULL}") was built from DIFFERENT inputs than the current seqfile/tree. Refusing --restart (would corrupt the alignment). Re-run with CACTUS_CLEAN=1 to start fresh." ;;
+    esac
   fi
 else
   # Fresh run: remove stale HAL if any
   [[ -f "${HAL_FULL}" ]] && rm -f "${HAL_FULL}"
+fi
+
+# Record the inputs this jobstore is being built from (for future --restart).
+if (( ${#RESTART_FLAG[@]} == 0 )); then
+  record_jobstore_inputs "${JS_FULL}" "06_run_full_cactus"
 fi
 
 # ── Run Cactus ────────────────────────────────────────────────────────────

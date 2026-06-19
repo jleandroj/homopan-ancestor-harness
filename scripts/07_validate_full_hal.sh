@@ -11,12 +11,12 @@ assert_file_nonempty "${HAL_FULL}" "Full HAL"
 # ── halValidate ───────────────────────────────────────────────────────────
 log_step "Running halValidate"
 VALIDATE_OUT="${QC_DIR}/full_halValidate.txt"
-run_halValidate "${HAL_FULL}" > "${VALIDATE_OUT}" 2>&1
-VALIDATE_RESULT=$(cat "${VALIDATE_OUT}")
-if [[ "${VALIDATE_RESULT}" == *"File valid"* ]]; then
-  log_ok "halValidate: File valid"
+if run_halValidate "${HAL_FULL}" > "${VALIDATE_OUT}" 2>&1; then
+  log_ok "halValidate: valid (exit 0)"
+  grep -q "File valid" "${VALIDATE_OUT}" || log_warn "halValidate exited 0 but did not print 'File valid'"
 else
-  log_error "halValidate failed:"
+  rc=$?
+  log_error "halValidate failed (exit ${rc}):"
   cat "${VALIDATE_OUT}"
   die "Full HAL is invalid"
 fi

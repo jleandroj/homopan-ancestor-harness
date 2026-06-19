@@ -17,7 +17,11 @@ results/
 .claude/.gate_pass
 
 # ── Logs (bitacora may contain commands) ─────────────────────────────────
-logs/bitacora.jsonl
+logs/
+*.lock
+
+# ── Jobstore inputs sidecars (runtime, P1-f) ─────────────────────────────
+*.inputs
 
 # ── Archived old harness (reference only) ────────────────────────────────
 _old_harness_review/

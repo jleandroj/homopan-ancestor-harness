@@ -33,12 +33,25 @@ fi
 INPUT=$(cat)
 TIMESTAMP=$(date -Iseconds)
 
-# ── Sanitize: redact HOME and PROJECT_ROOT from logged content ────────────
+# ── Sanitize: redact HOME/PROJECT_ROOT paths AND secret-shaped tokens ─────
+# Token redaction is best-effort (covers common cloud/VCS/API/JWT formats and
+# key=value secrets). File content hashes are computed separately and are not
+# passed through here, so sha256_after is never clobbered.
 sanitize() {
   local s="$1"
   s="${s//${HOME}/\~}"
   s="${s//${PROJECT_ROOT}/\$PROJECT}"
-  echo "${s}"
+  s=$(printf '%s' "$s" | sed -E \
+    -e 's/AKIA[0-9A-Z]{16}/<REDACTED_AWS_KEY>/g' \
+    -e 's/gh[pousr]_[A-Za-z0-9]{20,}/<REDACTED_TOKEN>/g' \
+    -e 's/github_pat_[A-Za-z0-9_]{20,}/<REDACTED_TOKEN>/g' \
+    -e 's/xox[baprs]-[A-Za-z0-9-]{8,}/<REDACTED_SLACK_TOKEN>/g' \
+    -e 's/sk-[A-Za-z0-9]{20,}/<REDACTED_API_KEY>/g' \
+    -e 's/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}/<REDACTED_JWT>/g' \
+    -e 's/([Aa]uthorization:[[:space:]]*[Bb]earer[[:space:]]+)[A-Za-z0-9._-]+/\1<REDACTED>/g' \
+    -e 's/(([Pp]assword|[Pp]asswd|[Tt]oken|[Ss]ecret|[Aa]pi[_-]?[Kk]ey)[[:space:]]*[=:][[:space:]]*)[^[:space:]"'"'"'\&]+/\1<REDACTED>/g' \
+    2>/dev/null)
+  printf '%s' "$s"
 }
 
 # ── Escape string for JSON (bash-pure, no jq needed) ─────────────────────
@@ -85,6 +98,21 @@ fi
 
 DETAIL_SAFE=$(sanitize "${DETAIL}")
 
+# ── Outcome (success/error) from the tool response ────────────────────────
+if [[ -n "${JQ_BIN}" ]]; then
+  OUTCOME=$(echo "${INPUT}" | "${JQ_BIN}" -r \
+    'if (.tool_response.is_error // false) or ((.tool_response.error // null) != null) then "error" else "ok" end' \
+    2>/dev/null || echo "unknown")
+  [[ -z "${OUTCOME}" ]] && OUTCOME="unknown"
+else
+  # bash-pure fallback cannot parse nested tool_response reliably
+  if grep -q '"is_error"[[:space:]]*:[[:space:]]*true' <<<"${INPUT}"; then
+    OUTCOME="error"
+  else
+    OUTCOME="unknown"
+  fi
+fi
+
 # ── File hash for Write/Edit (audit trail of what changed) ─────────────────
 FILE_HASH=""
 if [[ "${TOOL}" == "Write" || "${TOOL}" == "Edit" ]]; then
@@ -93,39 +121,44 @@ if [[ "${TOOL}" == "Write" || "${TOOL}" == "Edit" ]]; then
   fi
 fi
 
-# ── Write log entry ───────────────────────────────────────────────────────
+# ── Build the JSON line ───────────────────────────────────────────────────
 if [[ -n "${JQ_BIN}" ]]; then
   # -c = compact output (one JSON object per line, required for JSONL format)
   if [[ -n "${FILE_HASH}" ]]; then
-    "${JQ_BIN}" -cn \
-      --arg ts "${TIMESTAMP}" \
-      --arg tool "${TOOL}" \
-      --arg detail "${DETAIL_SAFE}" \
-      --arg sha256_after "${FILE_HASH}" \
-      '{timestamp: $ts, tool: $tool, detail: $detail, sha256_after: $sha256_after}' \
-      >> "${LOGFILE}" 2>/dev/null || true
+    LINE=$("${JQ_BIN}" -cn \
+      --arg ts "${TIMESTAMP}" --arg tool "${TOOL}" --arg detail "${DETAIL_SAFE}" \
+      --arg outcome "${OUTCOME}" --arg sha256_after "${FILE_HASH}" \
+      '{timestamp: $ts, tool: $tool, detail: $detail, outcome: $outcome, sha256_after: $sha256_after}' \
+      2>/dev/null || true)
   else
-    "${JQ_BIN}" -cn \
-      --arg ts "${TIMESTAMP}" \
-      --arg tool "${TOOL}" \
-      --arg detail "${DETAIL_SAFE}" \
-      '{timestamp: $ts, tool: $tool, detail: $detail}' \
-      >> "${LOGFILE}" 2>/dev/null || true
+    LINE=$("${JQ_BIN}" -cn \
+      --arg ts "${TIMESTAMP}" --arg tool "${TOOL}" --arg detail "${DETAIL_SAFE}" \
+      --arg outcome "${OUTCOME}" \
+      '{timestamp: $ts, tool: $tool, detail: $detail, outcome: $outcome}' \
+      2>/dev/null || true)
   fi
 else
   # bash-pure JSON output
   TS_ESC=$(json_escape "${TIMESTAMP}")
   TOOL_ESC=$(json_escape "${TOOL}")
   DETAIL_ESC=$(json_escape "${DETAIL_SAFE}")
+  OUTCOME_ESC=$(json_escape "${OUTCOME}")
   if [[ -n "${FILE_HASH}" ]]; then
     HASH_ESC=$(json_escape "${FILE_HASH}")
-    printf '{"timestamp":"%s","tool":"%s","detail":"%s","sha256_after":"%s"}\n' \
-      "${TS_ESC}" "${TOOL_ESC}" "${DETAIL_ESC}" "${HASH_ESC}" \
-      >> "${LOGFILE}" 2>/dev/null || true
+    LINE=$(printf '{"timestamp":"%s","tool":"%s","detail":"%s","outcome":"%s","sha256_after":"%s"}' \
+      "${TS_ESC}" "${TOOL_ESC}" "${DETAIL_ESC}" "${OUTCOME_ESC}" "${HASH_ESC}")
   else
-    printf '{"timestamp":"%s","tool":"%s","detail":"%s"}\n' \
-      "${TS_ESC}" "${TOOL_ESC}" "${DETAIL_ESC}" \
-      >> "${LOGFILE}" 2>/dev/null || true
+    LINE=$(printf '{"timestamp":"%s","tool":"%s","detail":"%s","outcome":"%s"}' \
+      "${TS_ESC}" "${TOOL_ESC}" "${DETAIL_ESC}" "${OUTCOME_ESC}")
+  fi
+fi
+
+# ── Append atomically (flock avoids interleaved lines under concurrency) ───
+if [[ -n "${LINE}" ]]; then
+  if command -v flock &>/dev/null; then
+    ( flock 9; printf '%s\n' "${LINE}" >> "${LOGFILE}" ) 9>"${LOGFILE}.lock" 2>/dev/null || true
+  else
+    printf '%s\n' "${LINE}" >> "${LOGFILE}" 2>/dev/null || true
   fi
 fi
 
