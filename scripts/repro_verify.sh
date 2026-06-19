@@ -85,7 +85,7 @@ case "$tool" in
   halValidate) echo "File valid"; exit 0;;
   halStats) case "${rest[0]:-}" in
       --version) echo "v2.2-mock";;
-      --genomes) echo "homo_sapiens, pan_paniscus, pan_troglodytes, gorilla_gorilla_gorilla, pongo_abelii, Anc_HomoPan";;
+      --genomes) echo "homo_sapiens, pan_paniscus, pan_troglodytes, gorilla_gorilla_gorilla, pongo_abelii, Anc_HomoPan, Pan, Homininae, Root";;
       *) echo "mock halStats";; esac; exit 0;;
   hal2fasta) printf '>%s\nACGTACGTACGTACGTACGTACGTACGTACGT\n' "${rest[1]:-anc}"; exit 0;;
   *) exit 0;;
@@ -98,11 +98,13 @@ run_once() {  # <ns>
   local ns="$1" log; log="$(mktemp)"
   local env_pre=(HOMOPAN_RUN_NS="${ns}" CACTUS_SEED="${SEED}" HOMOPAN_SKIP_PREFLIGHT=1 HOMOPAN_IGNORE_TOOLCHAIN_LOCK=1)
   if (( MOCK )); then
-    if PATH="${STUB_DIR}:${PATH}" CACTUS_TIMEOUT=120 "${env_pre[@]}" \
+    # Stub container -> sandboxing a stub is meaningless; opt out so --mock works
+    # on hosts without unprivileged userns (real mode keeps fail-closed default).
+    if PATH="${STUB_DIR}:${PATH}" CACTUS_TIMEOUT=120 HOMOPAN_SANDBOX_COMPUTE=0 env "${env_pre[@]}" \
        bash "${SRC_ROOT}/scripts/run_all_test.sh" >"${log}" 2>&1; then :; else
       log_error "run (${ns}) failed:"; tail -20 "${log}"; rm -f "${log}"; return 1; fi
   else
-    if "${env_pre[@]}" bash "${SRC_ROOT}/scripts/run_all_test.sh" >"${log}" 2>&1; then :; else
+    if env "${env_pre[@]}" bash "${SRC_ROOT}/scripts/run_all_test.sh" >"${log}" 2>&1; then :; else
       log_error "run (${ns}) failed:"; tail -20 "${log}"; rm -f "${log}"; return 1; fi
   fi
   rm -f "${log}"
@@ -110,6 +112,24 @@ run_once() {  # <ns>
 
 artifact() { echo "${SRC_ROOT}/runs/$1/$2"; }
 sha_of() { [[ -f "$1" ]] && sha256sum "$1" | cut -d' ' -f1 || echo "MISSING"; }
+
+# Alignment-based sequence identity (coordinate/length/orientation tolerant),
+# replacing the old naive positional char compare which is meaningless when the
+# two sequences have different lengths/coordinates. Uses the container's
+# minimap2 (gap-compressed identity over aligned blocks + aligned coverage).
+# Echoes "<identity> <coverage>" in [0,1]; "0 0" if nothing aligns; "NA NA" if
+# the aligner is unavailable. MOCK mode skips it (no real aligner needed).
+seq_identity() {   # <faA> <faB>
+  local a="$1" b="$2" paf
+  command -v apptainer >/dev/null 2>&1 || { echo "NA NA"; return 0; }
+  [[ -f "${SIF:-}" ]] || { echo "NA NA"; return 0; }
+  paf=$(apptainer exec --bind "${SRC_ROOT}" "${SIF}" \
+        minimap2 -cx asm5 --secondary=no "$a" "$b" 2>/dev/null) || { echo "NA NA"; return 0; }
+  [[ -z "${paf}" ]] && { echo "0 0"; return 0; }
+  printf '%s\n' "${paf}" | awk '
+    { nm+=$10; bl+=$11; if($2>qlen)qlen=$2; aq+=($4-$3) }
+    END{ id=(bl>0)?nm/bl:0; cov=(qlen>0)?aq/qlen:0; printf "%.6f %.6f", id, cov }'
+}
 
 # ── Run twice ──────────────────────────────────────────────────────────────
 (( MOCK )) && make_mock
@@ -131,16 +151,20 @@ for rel in "${REL_HAL}" "${REL_ANC}"; do
     log_warn "DIVERGENT ${rel}: A=${sa:0:16}... B=${sb:0:16}..."
     rc=1
     # Documented equivalence fallback (real Cactus may be non-bit-deterministic).
+    # Alignment-based (minimap2): equivalent only if BOTH identity AND aligned
+    # coverage clear the threshold -- high identity over a tiny aligned fraction
+    # is NOT equivalence.
     if [[ "${rel}" == "${REL_ANC}" && -f "${fa}" && -f "${fb}" ]]; then
-      id=$(awk '
-        function seq(f,  s,l){s="";while((getline l < f)>0){if(l!~/^>/)s=s l}return s}
-        BEGIN{a=seq(ARGV[1]);b=seq(ARGV[2]);n=length(a);if(length(b)<n)n=length(b);
-              if(n==0){print "0";exit} m=0;for(i=1;i<=n;i++)if(substr(a,i,1)==substr(b,i,1))m++;
-              printf "%.6f", m/n}' "${fa}" "${fb}")
-      if awk "BEGIN{exit !(${id} >= ${IDENTITY_THRESHOLD})}"; then
-        log_warn "  -> ancestral identity ${id} >= ${IDENTITY_THRESHOLD}: EQUIVALENT (not bit-identical)"
+      read -r id cov < <(seq_identity "${fa}" "${fb}")
+      if [[ "${id}" == "NA" ]]; then
+        log_warn "  -> equivalence metric unavailable (no minimap2/container); reporting bytes only"
       else
-        log_error "  -> ancestral identity ${id} < ${IDENTITY_THRESHOLD}: NOT equivalent"
+        log_info "  -> alignment metric: identity=${id} coverage=${cov} (minimap2 asm5, gap-compressed)"
+        if awk "BEGIN{exit !(${id} >= ${IDENTITY_THRESHOLD} && ${cov} >= ${IDENTITY_THRESHOLD})}"; then
+          log_warn "  -> EQUIVALENT by alignment (id ${id}, cov ${cov} >= ${IDENTITY_THRESHOLD}), not bit-identical"
+        else
+          log_error "  -> NOT equivalent (id ${id}, cov ${cov} vs threshold ${IDENTITY_THRESHOLD})"
+        fi
       fi
     fi
   fi
