@@ -161,11 +161,16 @@ else
   fi
 fi
 
-# ── Rotate when large (keep one previous generation, P3) ──────────────────
+# ── Rotate when large; keep BITACORA_KEEP generations (retention, P3) ──────
 LOG_MAX_BYTES=${BITACORA_MAX_BYTES:-5242880}   # 5 MB
+LOG_KEEP=${BITACORA_KEEP:-3}
 if [[ -f "${LOGFILE}" ]]; then
   _sz=$(stat -c %s "${LOGFILE}" 2>/dev/null || wc -c < "${LOGFILE}" 2>/dev/null || echo 0)
   if (( _sz > LOG_MAX_BYTES )); then
+    rm -f "${LOGFILE}.${LOG_KEEP}" 2>/dev/null || true
+    for (( i=LOG_KEEP-1; i>=1; i-- )); do
+      [[ -f "${LOGFILE}.${i}" ]] && mv -f "${LOGFILE}.${i}" "${LOGFILE}.$((i+1))" 2>/dev/null || true
+    done
     mv -f "${LOGFILE}" "${LOGFILE}.1" 2>/dev/null || true
   fi
 fi

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# wget wrapper -- enforce egress allowlist, then exec the real wget.
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/_guard.sh"
+net_guard wget "$@"

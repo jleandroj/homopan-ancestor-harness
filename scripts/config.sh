@@ -253,6 +253,32 @@ check_jobstore_inputs() {    # <jobstore_dir> <step>
   [[ "$stored" == "$cur" ]]
 }
 
+# ── Cactus pre-run validation (preflight.py, P2) ──────────────────────────
+# Validates the seqFile (tree parses/rooted, genomes exist, leaf<->genome
+# match, softmasking/N stats) BEFORE spending hours of compute. Set
+# HOMOPAN_SKIP_PREFLIGHT=1 to bypass.
+PREFLIGHT_PY="${PROJECT_ROOT}/.claude/skills/comparative-genomics-cactus/scripts/preflight.py"
+run_preflight() {   # <seqfile>
+  if [[ "${HOMOPAN_SKIP_PREFLIGHT:-0}" == "1" ]]; then
+    log_warn "Preflight skipped (HOMOPAN_SKIP_PREFLIGHT=1)"
+    return 0
+  fi
+  if [[ ! -f "${PREFLIGHT_PY}" ]]; then
+    log_warn "preflight.py not found; skipping pre-run validation"
+    return 0
+  fi
+  if ! command -v python3 &>/dev/null; then
+    log_warn "python3 not found; skipping preflight"
+    return 0
+  fi
+  log_step "Preflight validation (preflight.py)"
+  if python3 "${PREFLIGHT_PY}" --seqfile "$1"; then
+    log_ok "Preflight passed"
+  else
+    die "Preflight failed for $(sanitize_path "$1"). Fix issues before Cactus, or set HOMOPAN_SKIP_PREFLIGHT=1 to override."
+  fi
+}
+
 # ── Step locking (prevents concurrent execution) ─────────────────────────
 acquire_step_lock() {
   local step="$1"

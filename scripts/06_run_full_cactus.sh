@@ -8,6 +8,7 @@ script_banner "06 - Run Full Cactus"
 acquire_step_lock "06_run_full_cactus"
 require_done "03_make_seqfiles"
 [[ -f "${SEQFILE_FULL}" ]] || die "Full seqfile not found: $(sanitize_path "${SEQFILE_FULL}")"
+run_preflight "${SEQFILE_FULL}"
 
 # ── Disk check (full run needs more space) ────────────────────────────────
 check_disk "${DISK_FULL_MIN_GB}" || log_warn "Proceeding despite low disk (user responsibility)"

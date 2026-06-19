@@ -58,8 +58,10 @@ bash_is_obfuscated() {
   grep -Eq '(base64|xxd|openssl[[:space:]]+enc|gpg)[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh\b' <<<"$c" && return 0
   # remote fetch piped to a shell (egress + exec)
   grep -Eq '(curl|wget|fetch)\b[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh\b' <<<"$c" && return 0
-  # eval of any kind
-  grep -Eq '(^|[[:space:];&|(])eval([[:space:]]|$)' <<<"$c" && return 0
+  # eval: deny EXCEPT the standard conda/mamba activation hook
+  if grep -Eq '(^|[[:space:];&|(])eval([[:space:]]|$)' <<<"$c"; then
+    grep -Eq 'eval[[:space:]]+"?\$\([^)]*\b(conda|mamba|micromamba)\b[^)]*shell' <<<"$c" || return 0
+  fi
   return 1
 }
 
@@ -121,9 +123,17 @@ if [[ "${TOOL}" == "Bash" ]]; then
   fi
 fi
 
+# Network tools denied (no-egress policy; use scripts/sandbox_run.sh if needed)
+case "${TOOL}" in
+  WebFetch|WebSearch)
+    echo "DENY: ${TOOL} blocked by no-egress policy." >&2
+    exit 2
+    ;;
+esac
+
 # Read-only tools always allowed
 case "${TOOL}" in
-  Read|Glob|Grep|WebFetch|WebSearch|Task|TaskCreate|TaskUpdate|TaskList|TaskGet|AskUserQuestion)
+  Read|Glob|Grep|Task|TaskCreate|TaskUpdate|TaskList|TaskGet|AskUserQuestion)
     exit 0
     ;;
 esac

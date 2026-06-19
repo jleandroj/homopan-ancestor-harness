@@ -17,7 +17,9 @@ bash init.sh
 
 This applies without exceptions: includes trivial fixes, renames, comments, format changes, script edits, and any other modification to the working tree.
 
-**ENFORCEMENT:** a PreToolUse hook (`.claude/gate_check.sh`, registered in `.claude/settings.json`) **BLOCKS** `Write/Edit/NotebookEdit/Bash` unless `init.sh` has generated a valid gate pass. The gate uses a SHA256 hash of the contract surface (CLAUDE.md + agents.md) -- content-based, not time-based.
+**ENFORCEMENT:** a PreToolUse hook (`.claude/gate_check.sh`, registered in `.claude/settings.json`) **BLOCKS** `Write/Edit/NotebookEdit/Bash` unless `init.sh` has generated a valid gate pass. The gate hashes the full contract surface (CLAUDE.md, agents.md, gate_check.sh, bitacora_log.sh, settings.json, init.sh) **plus the `skills/` tree** -- content-based, not time-based.
+
+**SCOPE (honest):** the gate + `permissions.deny` are **defense-in-depth, not a sandbox** -- command parsing is heuristic and globs are not a boundary. The only real containment/egress boundary is `scripts/sandbox_run.sh` (bubblewrap, no network by default). See `SECURITY.md`.
 
 ### 0.2. Regla de Detencion Absoluta
 

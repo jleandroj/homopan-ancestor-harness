@@ -19,7 +19,9 @@
       "Write(./.claude/.gate_pass)",
       "Bash(curl:*)",
       "Bash(wget:*)",
-      "Bash(nc:*)"
+      "Bash(nc:*)",
+      "WebFetch",
+      "WebSearch"
     ]
   },
   "hooks": {

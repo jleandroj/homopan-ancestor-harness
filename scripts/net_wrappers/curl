@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# curl wrapper -- enforce egress allowlist, then exec the real curl.
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/_guard.sh"
+net_guard curl "$@"

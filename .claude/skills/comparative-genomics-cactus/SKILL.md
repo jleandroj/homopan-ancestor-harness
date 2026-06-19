@@ -1,5 +1,6 @@
 ---
 name: comparative-genomics-cactus
+allowed-tools: Read, Grep, Glob, Bash, Write, Edit
 description: >-
   World-class workflow for building and analyzing reference-free, multi-genome
   whole-genome alignments with Progressive Cactus, then mining them for

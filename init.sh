@@ -161,13 +161,14 @@ for tool in samtools apptainer; do
   fi
 done
 
-# jq: check PATH then conda env
+# jq: REQUIRED -- the gate parses hook JSON with it and fail-closes without it.
+# Treat as a hard error so a green init guarantees the gate can run (P3).
 if command -v jq &>/dev/null; then
   pass "jq: $(jq --version 2>/dev/null)"
 elif [[ -x "${HOME}/miniconda3/envs/homopan_ancestor/bin/jq" ]]; then
   pass "jq: $(${HOME}/miniconda3/envs/homopan_ancestor/bin/jq --version 2>/dev/null) (in conda env)"
 else
-  warn "jq not found (hooks may fail)"
+  fail "jq not found -- REQUIRED by the gate (install system jq: 'sudo apt install jq', or 'conda install -n homopan_ancestor -c conda-forge jq')"
 fi
 
 # ── 8. Disk ───────────────────────────────────────────────────────────────

@@ -61,12 +61,22 @@ echo -e "${BOLD}1. Read-only tools bypass gate${NC}"
 # Remove gate pass to test that read-only tools work without it
 rm -f "${GATE_PASS}"
 
-for tool in Read Glob Grep WebFetch WebSearch Task AskUserQuestion; do
+for tool in Read Glob Grep Task AskUserQuestion; do
   INPUT=$(printf '{"tool_name":"%s","tool_input":{}}' "${tool}")
   if echo "${INPUT}" | bash "${GATE}" 2>/dev/null; then
     pass "${tool} allowed without gate pass"
   else
     fail "${tool} should be allowed without gate pass"
+  fi
+done
+
+# WebFetch/WebSearch are network egress -> denied by policy (not read-only).
+for tool in WebFetch WebSearch; do
+  INPUT=$(printf '{"tool_name":"%s","tool_input":{}}' "${tool}")
+  if echo "${INPUT}" | bash "${GATE}" 2>/dev/null; then
+    fail "${tool} should be DENIED (no-egress policy)"
+  else
+    pass "${tool} correctly denied (no-egress policy)"
   fi
 done
 

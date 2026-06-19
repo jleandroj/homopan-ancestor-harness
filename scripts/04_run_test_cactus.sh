@@ -8,6 +8,7 @@ script_banner "04 - Run Test Cactus"
 acquire_step_lock "04_run_test_cactus"
 require_done "03_make_seqfiles"
 [[ -f "${SEQFILE_TEST}" ]] || die "Test seqfile not found: $(sanitize_path "${SEQFILE_TEST}")"
+run_preflight "${SEQFILE_TEST}"
 
 LOGFILE="${LOGS_DIR}/04_run_test_cactus.$(date +%Y%m%d_%H%M%S).log"
 

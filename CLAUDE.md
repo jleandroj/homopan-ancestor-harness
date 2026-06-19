@@ -21,7 +21,15 @@
 ## Authoritative docs
 
 - `agents.md` -- collaboration contract, safety protocol, architecture, agent roster.
+- `SECURITY.md` -- security model: which layers are real boundaries vs defense-in-depth.
 - `results/reports/HomoPan_ancestor_report.md` -- pipeline output report.
+
+## Security model (read SECURITY.md)
+
+The PreToolUse gate and `permissions.deny` are **defense-in-depth, not a
+sandbox** (heuristic command parsing; globs are not a frontier). The only real
+containment boundary is `scripts/sandbox_run.sh` (bubblewrap, no network by
+default). Run untrusted code or guarantee no-egress through it.
 
 ## Specialized agents
 

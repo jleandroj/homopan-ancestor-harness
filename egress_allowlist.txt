@@ -1,0 +1,17 @@
+# Egress allowlist for the curl/wget wrappers (scripts/net_wrappers/).
+# One host suffix per line; a request host matches if it equals an entry or
+# is a subdomain of it. Lines after '#' are comments. Default-deny.
+# Only the genome/data sources this pipeline legitimately needs.
+
+# NCBI (genome assemblies, datasets, eutils)
+ncbi.nlm.nih.gov
+nih.gov
+
+# Ensembl
+ensembl.org
+
+# UCSC genome browser downloads
+hgdownload.soe.ucsc.edu
+ucsc.edu
+
+# (Add hosts here as needed; keep this list minimal.)
