@@ -77,6 +77,11 @@ bash_is_obfuscated() {
   return 1
 }
 
+# ── Extracted command detector (#12) -- single source of truth, fuzzed in
+# tests/test_cmd_detector_fuzz.sh. Sourced AFTER the inline copy so the module
+# definitions win; remove the inline copies above once this is in place.
+source "${SCRIPT_DIR}/cmd_detector.sh"
+
 # ── jq check (fail-closed) ───────────────────────────────────────────────
 if ! command -v jq &>/dev/null; then
   # Try known conda locations
@@ -168,6 +173,7 @@ SECURITY_FILES=(
   "${CLAUDE_MD}"
   "${AGENTS_MD}"
   "${SCRIPT_DIR}/gate_check.sh"
+  "${SCRIPT_DIR}/cmd_detector.sh"
   "${SCRIPT_DIR}/bitacora_log.sh"
   "${SCRIPT_DIR}/settings.json"
   "${PROJECT_ROOT}/init.sh"
@@ -220,6 +226,7 @@ if [[ "${TOOL}" == "Write" || "${TOOL}" == "Edit" || "${TOOL}" == "NotebookEdit"
       "${CLAUDE_MD}"
       "${AGENTS_MD}"
       "${SCRIPT_DIR}/gate_check.sh"
+      "${SCRIPT_DIR}/cmd_detector.sh"
       "${SCRIPT_DIR}/bitacora_log.sh"
       "${SCRIPT_DIR}/settings.json"
       "${SCRIPT_DIR}/.gate_pass"

@@ -203,6 +203,7 @@ SECURITY_FILES=(
   "${CLAUDE_MD}"
   "${AGENTS_MD}"
   "${CLAUDE_DIR}/gate_check.sh"
+  "${CLAUDE_DIR}/cmd_detector.sh"
   "${CLAUDE_DIR}/bitacora_log.sh"
   "${CLAUDE_DIR}/settings.json"
   "${PROJECT_ROOT}/init.sh"

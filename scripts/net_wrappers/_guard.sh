@@ -15,10 +15,10 @@ net_guard() {
   _deny() { echo "egress DENY (${tool}): $1" >&2; exit 7; }
 
   _host_allowed() {
-    local h="$1" e
+    local h="${1,,}" e                       # hostnames are case-insensitive
     [[ -f "$allowlist" ]] || return 1
     while IFS= read -r e; do
-      e="${e%%#*}"; e="${e// /}"; [[ -z "$e" ]] && continue
+      e="${e%%#*}"; e="${e// /}"; e="${e,,}"; [[ -z "$e" ]] && continue
       [[ "$h" == "$e" || "$h" == *."$e" ]] && return 0
     done < "$allowlist"
     return 1
@@ -42,8 +42,15 @@ net_guard() {
     _host_allowed "$h" || _deny "'${h}' not in $(basename "${allowlist}")"
   }
 
-  # 1. URLs on the command line
+  # 0. Redirect-following defeats pre-validation (target host is unseen).
   local a
+  for a in "$@"; do
+    case "$a" in
+      -L|--location|--location-trusted) _deny "redirect-following (${a}) not allowed: target host cannot be pre-validated" ;;
+    esac
+  done
+
+  # 1. URLs on the command line
   for a in "$@"; do
     case "$a" in
       http://*|https://*|ftp://*|ftps://*) _check_host "$(_host_of "$a")" ;;
@@ -69,6 +76,9 @@ net_guard() {
       _deny "unverifiable scheme-less URL in config '${cfg}'"
     fi
   done
+
+  # wget follows redirects by default; pin it so only the vetted host is hit.
+  [[ "$tool" == "wget" ]] && set -- --max-redirect=0 "$@"
 
   # Resolve the real tool, skipping this wrapper directory.
   IFS=: read -ra _p <<<"$PATH"

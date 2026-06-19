@@ -45,6 +45,17 @@ fi
 # ── Parse hook input ─────────────────────────────────────────────────────
 INPUT=$(cat)
 TIMESTAMP=$(date -Iseconds)
+if [[ -n "${JQ_BIN}" ]]; then
+  _SID=$(printf '%s' "${INPUT}" | "${JQ_BIN}" -r '.session_id // empty' 2>/dev/null || true)
+  _CWD=$(printf '%s' "${INPUT}" | "${JQ_BIN}" -r '.cwd // empty' 2>/dev/null || true)
+else
+  _SID=$(printf '%s' "${INPUT}" | grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*: *"//;s/"$//' || true)
+  _CWD=$(printf '%s' "${INPUT}" | grep -o '"cwd"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*: *"//;s/"$//' || true)
+fi
+RUN_ID_TAG="${HOMOPAN_RUN_ID:-unknown}"
+AGENT_TAG="${HOMOPAN_AGENT:-${CLAUDE_AGENT:-unknown}}"
+SESSION_TAG="${_SID:-${HOMOPAN_SESSION_ID:-${CLAUDE_SESSION_ID:-unknown}}}"
+CWD_TAG="${_CWD:-${HOMOPAN_CWD:-unknown}}"
 
 # ── Sanitize: redact HOME/PROJECT_ROOT paths AND secret-shaped tokens ─────
 # Token redaction is best-effort (covers common cloud/VCS/API/JWT formats and
@@ -148,29 +159,32 @@ if [[ -n "${JQ_BIN}" ]]; then
   if [[ -n "${FILE_HASH}" ]]; then
     LINE=$("${JQ_BIN}" -cn \
       --arg ts "${TIMESTAMP}" --arg tool "${TOOL}" --arg detail "${DETAIL_SAFE}" \
+      --arg run_id "${RUN_ID_TAG}" --arg agent "${AGENT_TAG}" --arg session "${SESSION_TAG}" --arg cwd "${CWD_TAG}" \
       --arg outcome "${OUTCOME}" --arg sha256_after "${FILE_HASH}" \
-      '{timestamp: $ts, tool: $tool, detail: $detail, outcome: $outcome, sha256_after: $sha256_after}' \
+      '{timestamp: $ts, run_id: $run_id, agent: $agent, session: $session, cwd: $cwd, tool: $tool, detail: $detail, outcome: $outcome, sha256_after: $sha256_after}' \
       2>/dev/null || true)
   else
     LINE=$("${JQ_BIN}" -cn \
       --arg ts "${TIMESTAMP}" --arg tool "${TOOL}" --arg detail "${DETAIL_SAFE}" \
+      --arg run_id "${RUN_ID_TAG}" --arg agent "${AGENT_TAG}" --arg session "${SESSION_TAG}" --arg cwd "${CWD_TAG}" \
       --arg outcome "${OUTCOME}" \
-      '{timestamp: $ts, tool: $tool, detail: $detail, outcome: $outcome}' \
+      '{timestamp: $ts, run_id: $run_id, agent: $agent, session: $session, cwd: $cwd, tool: $tool, detail: $detail, outcome: $outcome}' \
       2>/dev/null || true)
   fi
 else
   # bash-pure JSON output
   TS_ESC=$(json_escape "${TIMESTAMP}")
+  RUN_ESC=$(json_escape "${RUN_ID_TAG}"); AG_ESC=$(json_escape "${AGENT_TAG}"); SE_ESC=$(json_escape "${SESSION_TAG}"); CW_ESC=$(json_escape "${CWD_TAG}")
   TOOL_ESC=$(json_escape "${TOOL}")
   DETAIL_ESC=$(json_escape "${DETAIL_SAFE}")
   OUTCOME_ESC=$(json_escape "${OUTCOME}")
   if [[ -n "${FILE_HASH}" ]]; then
     HASH_ESC=$(json_escape "${FILE_HASH}")
-    LINE=$(printf '{"timestamp":"%s","tool":"%s","detail":"%s","outcome":"%s","sha256_after":"%s"}' \
-      "${TS_ESC}" "${TOOL_ESC}" "${DETAIL_ESC}" "${OUTCOME_ESC}" "${HASH_ESC}")
+    LINE=$(printf '{"timestamp":"%s","run_id":"%s","agent":"%s","session":"%s","cwd":"%s","tool":"%s","detail":"%s","outcome":"%s","sha256_after":"%s"}' \
+      "${TS_ESC}" "${RUN_ESC}" "${AG_ESC}" "${SE_ESC}" "${CW_ESC}" "${TOOL_ESC}" "${DETAIL_ESC}" "${OUTCOME_ESC}" "${HASH_ESC}")
   else
-    LINE=$(printf '{"timestamp":"%s","tool":"%s","detail":"%s","outcome":"%s"}' \
-      "${TS_ESC}" "${TOOL_ESC}" "${DETAIL_ESC}" "${OUTCOME_ESC}")
+    LINE=$(printf '{"timestamp":"%s","run_id":"%s","agent":"%s","session":"%s","cwd":"%s","tool":"%s","detail":"%s","outcome":"%s"}' \
+      "${TS_ESC}" "${RUN_ESC}" "${AG_ESC}" "${SE_ESC}" "${CW_ESC}" "${TOOL_ESC}" "${DETAIL_ESC}" "${OUTCOME_ESC}")
   fi
 fi
 
