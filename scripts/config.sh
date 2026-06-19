@@ -232,6 +232,27 @@ require_done() {
   is_done "$step" || die "Prerequisite step '${step}' not completed. Run it first."
 }
 
+# ── Jobstore <-> inputs binding (P1-f) ────────────────────────────────────
+# Resuming Cactus with --restart against a jobstore that was built from
+# DIFFERENT inputs (changed seqfile/tree) silently corrupts the alignment.
+# We keep a sidecar file next to the jobstore recording the inputs hash of
+# the step that created it, and refuse to --restart on mismatch.
+_jobstore_sidecar() { echo "${1}.inputs"; }   # arg: jobstore dir
+
+record_jobstore_inputs() {   # <jobstore_dir> <step>
+  _step_inputs_hash "$2" > "$(_jobstore_sidecar "$1")" 2>/dev/null || true
+}
+
+# Returns: 0 = inputs match, 1 = MISMATCH, 2 = no record (legacy jobstore).
+check_jobstore_inputs() {    # <jobstore_dir> <step>
+  local sc cur stored
+  sc="$(_jobstore_sidecar "$1")"
+  [[ -f "$sc" ]] || return 2
+  cur="$(_step_inputs_hash "$2")"
+  stored="$(cat "$sc" 2>/dev/null)"
+  [[ "$stored" == "$cur" ]]
+}
+
 # ── Step locking (prevents concurrent execution) ─────────────────────────
 acquire_step_lock() {
   local step="$1"
