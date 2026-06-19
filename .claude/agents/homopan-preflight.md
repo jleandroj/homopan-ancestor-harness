@@ -10,7 +10,7 @@
 
 ## Task
 
-1. `cd ~/projects/HomoPan_ancestor && bash init.sh`
+1. `cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}" && bash init.sh`
 2. `bash scripts/00_check_env.sh` (if init.sh passed)
 3. `bash scripts/10_qc_summary.sh` (to show pipeline status)
 4. Report:

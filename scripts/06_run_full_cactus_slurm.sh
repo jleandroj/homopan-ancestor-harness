@@ -20,6 +20,7 @@ script_banner "06 - Run Full Cactus (SLURM)"
 
 require_done "03_make_seqfiles"
 [[ -f "${SEQFILE_FULL}" ]] || die "Full seqfile not found: $(sanitize_path "${SEQFILE_FULL}")"
+run_preflight "${SEQFILE_FULL}"
 
 LOGFILE="${LOGS_DIR}/06_run_full_cactus_slurm.$(date +%Y%m%d_%H%M%S).log"
 
@@ -42,14 +43,18 @@ log_info "Output:  $(sanitize_path "${HAL_FULL}")"
 
 START_TIME=$(date +%s)
 
+# NOTE: run_cactus already adds `cactus --binariesMode local`; do not repeat it.
 run_cactus \
   "${JS_FULL}" \
   "${SEQFILE_FULL}" \
   "${HAL_FULL}" \
   --batchSystem single_machine \
-  --binariesMode local \
   --realTimeLogging true \
   2>&1 | tee "${LOGFILE}"
+
+if (( PIPESTATUS[0] == 124 )); then
+  die "Cactus full alignment (SLURM) timed out after ${CACTUS_TIMEOUT:-172800}s"
+fi
 
 END_TIME=$(date +%s)
 ELAPSED=$(( END_TIME - START_TIME ))

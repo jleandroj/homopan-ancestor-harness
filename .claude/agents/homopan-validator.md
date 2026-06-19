@@ -12,19 +12,19 @@
 
 ### Validate Test HAL
 ```bash
-cd ~/projects/HomoPan_ancestor
+cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
 bash scripts/05_validate_test_hal.sh
 ```
 
 ### Validate Full HAL
 ```bash
-cd ~/projects/HomoPan_ancestor
+cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
 bash scripts/07_validate_full_hal.sh
 ```
 
 ### Extract Ancestors
 ```bash
-cd ~/projects/HomoPan_ancestor
+cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
 bash scripts/08_extract_ancestors.sh
 ```
 

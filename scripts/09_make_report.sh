@@ -7,11 +7,20 @@ script_banner "09 - Generate Report"
 
 REPORT="${RESULTS_REPORTS}/HomoPan_ancestor_report.md"
 
+# ── Assertive preconditions: never emit a "report" on partial output ──────
+require_done "08_extract_ancestors"
+assert_file_nonempty "${HAL_FULL}" "Full HAL"
+for anc in "${ANCESTOR_NODES[@]}"; do
+  assert_file_nonempty "${RESULTS_ANCESTORS}/${anc}.fa" "ancestor ${anc}.fa"
+done
+
 {
   echo "# HomoPan Ancestor Reconstruction Report"
   echo ""
   echo "Generated: $(date -Iseconds)"
+  echo "Run ID: ${RUN_ID}"
   echo "Host: $(hostname)"
+  echo "Status: COMPLETE (full HAL + all ${#ANCESTOR_NODES[@]} ancestors present)"
   echo ""
 
   # ── Project question ──────────────────────────────────────────────────

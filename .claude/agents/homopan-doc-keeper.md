@@ -34,7 +34,7 @@
 ## Regenerating Documentation
 
 ```bash
-cd ~/projects/HomoPan_ancestor
+cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
 bash scripts/09_make_report.sh   # Regenerate report from QC data
 bash scripts/10_qc_summary.sh    # Terminal summary
 ```

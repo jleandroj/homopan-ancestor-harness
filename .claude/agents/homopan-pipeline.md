@@ -13,19 +13,19 @@
 
 ### Test Mode (default)
 ```bash
-cd ~/projects/HomoPan_ancestor
+cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
 bash scripts/run_all_test.sh
 ```
 
 ### Full Mode (user must explicitly request)
 ```bash
-cd ~/projects/HomoPan_ancestor
+cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
 bash scripts/run_all_full.sh
 ```
 
 ### Full Mode with alternate disk
 ```bash
-cd ~/projects/HomoPan_ancestor
+cd "${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}"
 HOMOPAN_WORKDIR=/mnt/s1/homopan_work bash scripts/run_all_full.sh
 ```
 

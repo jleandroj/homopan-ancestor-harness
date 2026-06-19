@@ -8,6 +8,11 @@ set -euo pipefail
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPTS_DIR}/.." && pwd)"
 
+# ── Run identity (one id shared by every step of a single pipeline run) ────
+# The orchestrator sets+exports it first; child step scripts inherit it.
+RUN_ID="${HOMOPAN_RUN_ID:-$(date +%Y%m%d_%H%M%S)_$$}"
+export HOMOPAN_RUN_ID="${RUN_ID}"
+
 # ── Core paths ────────────────────────────────────────────────────────────
 GENOMES_DIR="${PROJECT_ROOT}/genomes"
 TEST_GENOMES_DIR="${PROJECT_ROOT}/test_genomes"
@@ -198,6 +203,7 @@ mark_done() {
   hash="$(_step_inputs_hash "$step")"
   {
     echo "timestamp=$(date -Iseconds)"
+    echo "run_id=${RUN_ID}"
     echo "inputs_sha256=${hash}"
   } > "${TARGETS_DIR}/${step}.done"
   log_ok "Step '${step}' marked done${hash:+ (inputs ${hash:0:12}...)}"
@@ -398,6 +404,7 @@ script_banner() {
   echo -e "${BOLD}========================================${NC}"
   echo -e "${BOLD}  ${name}${NC}"
   echo -e "${BOLD}  $(date)${NC}"
+  echo -e "${BOLD}  run ${RUN_ID}${NC}"
   echo -e "${BOLD}========================================${NC}"
   echo ""
 }
