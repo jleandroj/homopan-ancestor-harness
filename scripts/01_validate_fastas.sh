@@ -5,6 +5,7 @@ source "$(dirname "$0")/config.sh"
 
 script_banner "01 - Validate Full FASTAs"
 
+acquire_step_lock "01_validate_fastas"
 require_done "00_check_env"
 
 CHECKSUMS_FILE="${QC_DIR}/genome_checksums.tsv"

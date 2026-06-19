@@ -5,6 +5,7 @@ source "$(dirname "$0")/config.sh"
 
 script_banner "07 - Validate Full HAL"
 
+acquire_step_lock "07_validate_full_hal"
 require_done "06_run_full_cactus"
 assert_file_nonempty "${HAL_FULL}" "Full HAL"
 

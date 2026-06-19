@@ -8,6 +8,7 @@ script_banner "09 - Generate Report"
 REPORT="${RESULTS_REPORTS}/HomoPan_ancestor_report.md"
 
 # ── Assertive preconditions: never emit a "report" on partial output ──────
+acquire_step_lock "09_make_report"
 require_done "08_extract_ancestors"
 assert_file_nonempty "${HAL_FULL}" "Full HAL"
 for anc in "${ANCESTOR_NODES[@]}"; do
@@ -103,7 +104,7 @@ done
     FA="${RESULTS_ANCESTORS}/${anc}.fa"
     if [[ -f "${FA}" ]]; then
       SZ=$(du -h "${FA}" | cut -f1)
-      echo "| ${anc} | results/ancestors/${anc}.fa | ${SZ} |"
+      echo "| ${anc} | ${FA#${PROJECT_ROOT}/} | ${SZ} |"
     else
       echo "| ${anc} | *not extracted yet* | - |"
     fi

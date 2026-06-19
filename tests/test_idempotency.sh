@@ -35,7 +35,18 @@ step_inputs() {
     litstep)     printf '%s\n' "lit:TOKEN=${TEST_TOKEN:-A}" ;;
     bigstep)     printf '%s\n' "${BIG_INPUT}" ;;
     nodepsstep)  : ;;   # existence-only
+    outstep)     printf '%s\n' "${SMALL_INPUT}" ;;
     *)           : ;;
+  esac
+}
+
+# Override the output map: 'outstep' declares an output artifact so we can test
+# output-fingerprint verification (corruption/truncation/deletion -> re-run).
+OUT_ARTIFACT="${SANDBOX}/out.fa"
+step_outputs() {
+  case "$1" in
+    outstep) printf '%s\n' "${OUT_ARTIFACT}" ;;
+    *)       : ;;
   esac
 }
 
@@ -68,10 +79,15 @@ echo ""; echo -e "${BOLD}4. Existence-only step${NC}"
 mark_done nodepsstep >/dev/null
 if is_done nodepsstep >/dev/null 2>&1; then pass "existence-only step done after mark"; else fail "existence-only step should be done"; fi
 
-# ── 5. Legacy marker (timestamp only) accepted ────────────────────────────
-echo ""; echo -e "${BOLD}5. Legacy marker accepted${NC}"
-echo "2026-01-01T00:00:00-00:00" > "${TARGETS_DIR}/teststep.done"   # old format
-if is_done teststep >/dev/null 2>&1; then pass "legacy marker treated as done (with warning)"; else fail "legacy marker should be accepted"; fi
+# ── 5. Legacy / no-schema marker is REJECTED (P0: no accept-as-done) ──────
+echo ""; echo -e "${BOLD}5. Legacy / corrupt marker rejected${NC}"
+echo "2026-01-01T00:00:00-00:00" > "${TARGETS_DIR}/teststep.done"   # old format, no schema
+if is_done teststep >/dev/null 2>&1; then fail "legacy marker must NOT be accepted (would skip a step forever)"; else pass "legacy/no-schema marker rejected -> re-run"; fi
+# A marker with the right schema but a blanked-out inputs hash is also rejected.
+printf 'schema=2\ninputs_sha256=\noutputs_sha256=none\n' > "${TARGETS_DIR}/teststep.done"
+if is_done teststep >/dev/null 2>&1; then fail "blank inputs hash must be rejected"; else pass "blank inputs hash rejected -> re-run"; fi
+# Restore a valid marker for later tests.
+mark_done teststep >/dev/null
 
 # ── 6. Missing marker is not done ─────────────────────────────────────────
 echo ""; echo -e "${BOLD}6. Missing marker${NC}"
@@ -94,6 +110,27 @@ mark_done bigstep >/dev/null
 if is_done bigstep >/dev/null 2>&1; then pass "large file done after mark"; else fail "large file should be done"; fi
 printf 'X' | dd of="${BIG_INPUT}" bs=1 seek=0 conv=notrunc 2>/dev/null   # edit first byte (sampled head)
 if is_done bigstep >/dev/null 2>&1; then fail "edit in large file should invalidate (sampled)"; else pass "large-file content edit detected"; fi
+
+# ── 9. Atomic write / crash-recovery: mark_done leaves no stray .tmp ──────
+echo ""; echo -e "${BOLD}9. Atomic marker write (crash-recovery)${NC}"
+mark_done teststep >/dev/null
+shopt -s nullglob; stray=( "${TARGETS_DIR}"/*.tmp ); shopt -u nullglob
+(( ${#stray[@]} == 0 )) && pass "no stray .tmp after mark_done (atomic mv)" || fail "left ${#stray[@]} stray .tmp file(s)"
+grep -qE '^schema=2$' "${TARGETS_DIR}/teststep.done" && pass "marker carries schema=2" || fail "marker missing schema=2"
+# Simulate a crash mid-write: a half-written .tmp must be ignored by is_done.
+printf 'schema=2\ntimestamp=partial' > "${TARGETS_DIR}/crashstep.done.partial.tmp"
+if is_done crashstep >/dev/null 2>&1; then fail "a .tmp must never count as a completed marker"; else pass "half-written .tmp ignored (step re-runs)"; fi
+
+# ── 10. Output verification: corruption/truncation/deletion forces re-run ─
+echo ""; echo -e "${BOLD}10. Output fingerprint verification${NC}"
+echo "ancestor v1" > "${OUT_ARTIFACT}"
+mark_done outstep >/dev/null
+if is_done outstep >/dev/null 2>&1; then pass "step done with intact output"; else fail "should be done with intact output"; fi
+grep -qE '^outputs_sha256=[0-9a-f]{64}$' "${TARGETS_DIR}/outstep.done" && pass "marker records a real outputs_sha256" || fail "marker missing outputs_sha256"
+echo "corrupted" > "${OUT_ARTIFACT}"        # mutate output after completion
+if is_done outstep >/dev/null 2>&1; then fail "changed output must invalidate"; else pass "changed/truncated output detected -> re-run"; fi
+mark_done outstep >/dev/null; rm -f "${OUT_ARTIFACT}"   # delete output after completion
+if is_done outstep >/dev/null 2>&1; then fail "deleted output must invalidate"; else pass "deleted output detected -> re-run"; fi
 
 # ── Summary ───────────────────────────────────────────────────────────────
 echo ""

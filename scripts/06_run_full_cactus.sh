@@ -57,6 +57,9 @@ log_info "Mode:    ${RESTART_FLAG[*]:-fresh}"
 
 START_TIME=$(date +%s)
 
+# Capture cactus's own exit code (not tee's) without letting set -e abort
+# first, so we can roll back a partial HAL before reporting the failure.
+set +e
 run_cactus \
   "${JS_FULL}" \
   "${SEQFILE_FULL}" \
@@ -65,10 +68,8 @@ run_cactus \
   --realTimeLogging true \
   "${RESTART_FLAG[@]}" \
   2>&1 | tee "${LOGFILE}"
-
-if (( PIPESTATUS[0] == 124 )); then
-  die "Cactus full alignment timed out after ${CACTUS_TIMEOUT:-172800}s"
-fi
+cactus_rc=${PIPESTATUS[0]}
+set -e
 
 END_TIME=$(date +%s)
 ELAPSED=$(( END_TIME - START_TIME ))
@@ -77,8 +78,17 @@ MINS=$(( (ELAPSED % 3600) / 60 ))
 
 log_info "Elapsed: ${HOURS}h ${MINS}m"
 
-# ── Verify output ─────────────────────────────────────────────────────────
-assert_file_nonempty "${HAL_FULL}" "Full HAL"
+# ── Rollback partial HAL on failure (jobstore is preserved for --restart) ──
+if (( cactus_rc != 0 )); then
+  [[ -f "${HAL_FULL}" ]] && { log_warn "Removing partial/incomplete HAL"; rm -f "${HAL_FULL}"; }
+  if (( cactus_rc == 124 )); then
+    die "Cactus full alignment timed out after ${CACTUS_TIMEOUT:-172800}s. Jobstore preserved; re-run to --restart."
+  fi
+  die "Cactus full alignment failed (exit ${cactus_rc}). Jobstore preserved; re-run to resume (--restart)."
+fi
+
+# ── Verify output (structural gate, not just non-empty) ────────────────────
+assert_hal_valid "${HAL_FULL}" "Full HAL"
 
 log_ok "Cactus full alignment complete (${HOURS}h ${MINS}m)"
 mark_done "06_run_full_cactus"

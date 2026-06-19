@@ -13,23 +13,37 @@ PROJECT_ROOT="$(cd "${SCRIPTS_DIR}/.." && pwd)"
 RUN_ID="${HOMOPAN_RUN_ID:-$(date +%Y%m%d_%H%M%S)_$$}"
 export HOMOPAN_RUN_ID="${RUN_ID}"
 
+# ── State namespace (per-agent / per-experiment isolation) ────────────────
+# HOMOPAN_RUN_NS isolates ALL mutable pipeline state under runs/<NS>/ so that
+# multiple cooperative agents can run simultaneously on the same repo without
+# colliding on targets/, results/, work/, logs/, seqfiles or markers.
+#   unset/empty -> STATE_ROOT = PROJECT_ROOT      (legacy layout; nothing moves)
+#   set         -> STATE_ROOT = PROJECT_ROOT/runs/<NS>
+# genomes/ (inputs) and the SIF are NEVER namespaced: shared, read-only.
+RUN_NS="${HOMOPAN_RUN_NS:-}"
+if [[ -n "${RUN_NS}" ]]; then
+  STATE_ROOT="${PROJECT_ROOT}/runs/${RUN_NS}"
+else
+  STATE_ROOT="${PROJECT_ROOT}"
+fi
+
 # ── Core paths ────────────────────────────────────────────────────────────
-GENOMES_DIR="${PROJECT_ROOT}/genomes"
-TEST_GENOMES_DIR="${PROJECT_ROOT}/test_genomes"
-RESULTS_DIR="${PROJECT_ROOT}/results"
+GENOMES_DIR="${PROJECT_ROOT}/genomes"          # shared, read-only input (NOT namespaced)
+TEST_GENOMES_DIR="${STATE_ROOT}/test_genomes"
+RESULTS_DIR="${STATE_ROOT}/results"
 RESULTS_TEST="${RESULTS_DIR}/test"
 RESULTS_FULL="${RESULTS_DIR}/full"
 RESULTS_ANCESTORS="${RESULTS_DIR}/ancestors"
 RESULTS_REGIONS="${RESULTS_DIR}/regions"
 RESULTS_REPORTS="${RESULTS_DIR}/reports"
-LOGS_DIR="${PROJECT_ROOT}/logs"
-QC_DIR="${PROJECT_ROOT}/qc"
-TARGETS_DIR="${PROJECT_ROOT}/targets"
+LOGS_DIR="${STATE_ROOT}/logs"
+QC_DIR="${STATE_ROOT}/qc"
+TARGETS_DIR="${STATE_ROOT}/targets"
 
 # ── Container ─────────────────────────────────────────────────────────────
-SIF="${PROJECT_ROOT}/cactus_v3.0.1.sif"
-export APPTAINER_CACHEDIR="${PROJECT_ROOT}/apptainer_cache"
-export APPTAINER_TMPDIR="${PROJECT_ROOT}/apptainer_tmp"
+SIF="${PROJECT_ROOT}/cactus_v3.0.1.sif"        # shared, read-only (NOT namespaced)
+export APPTAINER_CACHEDIR="${PROJECT_ROOT}/apptainer_cache"   # shared image cache
+export APPTAINER_TMPDIR="${STATE_ROOT}/apptainer_tmp"         # per-NS (extraction collides otherwise)
 
 # ── Biology ───────────────────────────────────────────────────────────────
 SPECIES=(homo_sapiens pan_paniscus pan_troglodytes gorilla_gorilla_gorilla pongo_abelii)
@@ -39,8 +53,8 @@ ANCESTOR_NODES=(Anc_HomoPan Pan Homininae Root)
 NEWICK_TREE='(((homo_sapiens:0.0067,(pan_paniscus:0.002,pan_troglodytes:0.002)Pan:0.0047)Anc_HomoPan:0.0024,gorilla_gorilla_gorilla:0.0091)Homininae:0.0061,pongo_abelii:0.0152)Root;'
 
 # ── Seqfile paths ─────────────────────────────────────────────────────────
-SEQFILE_FULL="${PROJECT_ROOT}/primates.seqfile"
-SEQFILE_TEST="${PROJECT_ROOT}/primates.test.seqfile"
+SEQFILE_FULL="${STATE_ROOT}/primates.seqfile"
+SEQFILE_TEST="${STATE_ROOT}/primates.test.seqfile"
 
 # ── Result file paths ─────────────────────────────────────────────────────
 HAL_TEST="${RESULTS_TEST}/primates.test.hal"
@@ -49,7 +63,14 @@ HAL_FULL="${RESULTS_FULL}/primates.full.hal"
 # ── Alternate work directory (for disk overflow) ─────────────────────────
 # Set HOMOPAN_WORKDIR env var to use an alternate disk (e.g. /mnt/s1)
 # Example: HOMOPAN_WORKDIR=/mnt/s1/homopan_work bash scripts/run_all_full.sh
-WORK_DIR="${HOMOPAN_WORKDIR:-${PROJECT_ROOT}/work}"
+# When an overflow disk is given, still isolate per-NS so concurrent agents
+# don't share a jobstore; otherwise default under the (possibly namespaced)
+# STATE_ROOT. Unset NS + unset HOMOPAN_WORKDIR => PROJECT_ROOT/work (legacy).
+if [[ -n "${HOMOPAN_WORKDIR:-}" ]]; then
+  WORK_DIR="${HOMOPAN_WORKDIR}${RUN_NS:+/${RUN_NS}}"
+else
+  WORK_DIR="${STATE_ROOT}/work"
+fi
 mkdir -p "${WORK_DIR}" 2>/dev/null || true
 
 # ── Jobstore paths ────────────────────────────────────────────────────────
@@ -70,13 +91,26 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 # ── Logging ───────────────────────────────────────────────────────────────
+# Every line carries the run id (and agent/session when the env provides them)
+# so interleaved output from concurrent or resumed runs is attributable (#10).
 _ts() { date '+%Y-%m-%d %H:%M:%S'; }
+_AGENT_TAG="${HOMOPAN_AGENT:-${CLAUDE_AGENT:-}}"
+_SESSION_TAG="${HOMOPAN_SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
+_logtag() {
+  printf '%s' "${RUN_ID}"
+  [[ -n "${_AGENT_TAG}" ]]   && printf '/%s' "${_AGENT_TAG}"
+  [[ -n "${_SESSION_TAG}" ]] && printf '/%s' "${_SESSION_TAG}"
+}
 
-log_info()  { echo -e "${BLUE}[$(_ts)]${NC} ${BOLD}INFO${NC}  $*"; }
-log_ok()    { echo -e "${GREEN}[$(_ts)]${NC} ${GREEN}OK${NC}    $*"; }
-log_warn()  { echo -e "${YELLOW}[$(_ts)]${NC} ${YELLOW}WARN${NC}  $*"; }
-log_error() { echo -e "${RED}[$(_ts)]${NC} ${RED}ERROR${NC} $*"; }
-log_step()  { echo -e "${BLUE}[$(_ts)]${NC} ${BOLD}STEP${NC}  $*"; }
+# Logs go to STDERR, never stdout: several helpers (run_in_container, the
+# sandbox/seed probes) run inside command substitution or `cmd > file`, so a
+# log line on stdout would contaminate the captured data (e.g. a hal2fasta
+# FASTA or a halStats value). stderr is still captured by the steps' `2>&1|tee`.
+log_info()  { echo -e "${BLUE}[$(_ts)]${NC}[$(_logtag)] ${BOLD}INFO${NC}  $*" >&2; }
+log_ok()    { echo -e "${GREEN}[$(_ts)]${NC}[$(_logtag)] ${GREEN}OK${NC}    $*" >&2; }
+log_warn()  { echo -e "${YELLOW}[$(_ts)]${NC}[$(_logtag)] ${YELLOW}WARN${NC}  $*" >&2; }
+log_error() { echo -e "${RED}[$(_ts)]${NC}[$(_logtag)] ${RED}ERROR${NC} $*" >&2; }
+log_step()  { echo -e "${BLUE}[$(_ts)]${NC}[$(_logtag)] ${BOLD}STEP${NC}  $*" >&2; }
 
 die() { log_error "$@"; exit 1; }
 
@@ -101,7 +135,7 @@ ensure_dirs() {
   mkdir -p "${LOGS_DIR}" "${QC_DIR}" "${TARGETS_DIR}" \
     "${RESULTS_TEST}" "${RESULTS_FULL}" "${RESULTS_ANCESTORS}" \
     "${RESULTS_REGIONS}" "${RESULTS_REPORTS}" \
-    "${PROJECT_ROOT}/work"
+    "${TEST_GENOMES_DIR}" "${WORK_DIR}"
 }
 
 # ── Signal trap ───────────────────────────────────────────────────────────
@@ -203,16 +237,81 @@ _step_inputs_hash() {
   printf '%s' "$manifest" | sha256sum | cut -d' ' -f1
 }
 
+# Declared OUTPUTS per step: the artifact files a step produces. Tracking these
+# lets is_done detect a corrupted/truncated/deleted output AFTER it was marked
+# done and force a re-run -- the input hash alone cannot catch that. Empty list
+# => no output verification (e.g. validation-only or environment steps).
+step_outputs() {
+  local step="$1"
+  case "$step" in
+    02_make_test_fastas)
+      printf '%s\n' "${TEST_GENOMES_DIR}"/*.fa ;;
+    03_make_seqfiles)
+      printf '%s\n' "${SEQFILE_TEST}" "${SEQFILE_FULL}" ;;
+    04_run_test_cactus)
+      printf '%s\n' "${HAL_TEST}" ;;
+    05_validate_test_hal)
+      printf '%s\n' "${RESULTS_ANCESTORS}/Anc_HomoPan.test.fa" ;;
+    06_run_full_cactus)
+      printf '%s\n' "${HAL_FULL}" ;;
+    08_extract_ancestors)
+      local anc
+      for anc in "${ANCESTOR_NODES[@]}"; do
+        printf '%s\n' "${RESULTS_ANCESTORS}/${anc}.fa"
+      done ;;
+    09_make_report)
+      printf '%s\n' "${RESULTS_REPORTS}/HomoPan_ancestor_report.md" ;;
+    *)
+      : ;;  # no declared outputs -> no output verification
+  esac
+}
+
+# Hash a step's output manifest. Echoes empty string when no outputs declared.
+# A MISSING declared output makes the hash differ from the recorded one, so
+# is_done re-runs the step. Uses the same size/sample fingerprint as inputs, so
+# a truncated large HAL (size change) is detected cheaply.
+_step_outputs_hash() {
+  local step="$1" item manifest=""
+  while IFS= read -r item; do
+    [[ -z "$item" ]] && continue
+    manifest+="$(_input_fingerprint "$item")"$'\n'
+  done < <(step_outputs "$step")
+  [[ -z "$manifest" ]] && return 0
+  printf '%s' "$manifest" | sha256sum | cut -d' ' -f1
+}
+
+# Marker schema version. Bump when the marker format changes so that markers
+# written by an older layout are treated as invalid (re-run) rather than
+# silently misread.
+_MARKER_SCHEMA=2
+
+# A marker line tells whether the step DECLARES inputs/outputs. We must
+# distinguish "declared, hashed to empty" from "not declared at all"; the empty
+# string is ambiguous, so we write the literal token "none" when a step has no
+# declared inputs/outputs and store the hash otherwise.
+_hash_or_none() { [[ -z "$1" ]] && printf 'none' || printf '%s' "$1"; }
+
 mark_done() {
   local step="$1"
-  local hash
-  hash="$(_step_inputs_hash "$step")"
+  local ihash ohash marker tmp
+  ihash="$(_step_inputs_hash "$step")"
+  ohash="$(_step_outputs_hash "$step")"
+  marker="${TARGETS_DIR}/${step}.done"
+  # Atomic write: render to a temp file on the SAME filesystem, then rename.
+  # A crash mid-write leaves only the .tmp (ignored by is_done), never a
+  # half-written marker that would skip the step forever.
+  tmp="$(mktemp "${marker}.XXXXXX.tmp")"
   {
+    echo "schema=${_MARKER_SCHEMA}"
     echo "timestamp=$(date -Iseconds)"
     echo "run_id=${RUN_ID}"
-    echo "inputs_sha256=${hash}"
-  } > "${TARGETS_DIR}/${step}.done"
-  log_ok "Step '${step}' marked done${hash:+ (inputs ${hash:0:12}...)}"
+    echo "inputs_sha256=$(_hash_or_none "${ihash}")"
+    echo "outputs_sha256=$(_hash_or_none "${ohash}")"
+  } > "${tmp}"
+  # fsync the file and rename so the rename cannot land before the data.
+  sync "${tmp}" 2>/dev/null || true
+  mv -f "${tmp}" "${marker}"
+  log_ok "Step '${step}' marked done${ihash:+ (inputs ${ihash:0:12}...)}"
 }
 
 is_done() {
@@ -220,23 +319,45 @@ is_done() {
   local marker="${TARGETS_DIR}/${step}.done"
   [[ -f "$marker" ]] || return 1
 
-  local expected
-  expected="$(_step_inputs_hash "$step")"
-  # Existence-only steps (no declared inputs).
-  [[ -z "$expected" ]] && return 0
+  # Reject markers from an older/unknown schema -> re-run rather than misread.
+  local schema
+  schema="$(grep -E '^schema=' "$marker" 2>/dev/null | head -1 | cut -d= -f2)"
+  if [[ "${schema}" != "${_MARKER_SCHEMA}" ]]; then
+    log_warn "Step '${step}' marker has schema '${schema:-<none>}' (expected ${_MARKER_SCHEMA}); treating as not done. Will re-run."
+    return 1
+  fi
 
-  local stored
-  stored="$(grep -E '^inputs_sha256=' "$marker" 2>/dev/null | head -1 | cut -d= -f2)"
-  if [[ -z "$stored" ]]; then
-    # Legacy marker (pre-upgrade, timestamp only): cannot verify -> accept once.
-    log_warn "Step '${step}' marker is legacy (no inputs hash); treating as done. rm '${marker}' to force re-run."
-    return 0
+  # ── Verify inputs ───────────────────────────────────────────────────────
+  local expected_i stored_i
+  expected_i="$(_step_inputs_hash "$step")"
+  [[ -z "$expected_i" ]] && expected_i="none"
+  stored_i="$(grep -E '^inputs_sha256=' "$marker" 2>/dev/null | head -1 | cut -d= -f2)"
+  if [[ -z "$stored_i" ]]; then
+    # No inputs hash recorded: cannot trust the marker. Re-run (fail-closed),
+    # NOT accept-as-legacy -- a crash-truncated marker must never skip a step.
+    log_warn "Step '${step}' marker is missing its inputs hash (corrupt/legacy); treating as not done. Will re-run."
+    return 1
   fi
-  if [[ "$stored" == "$expected" ]]; then
-    return 0
+  if [[ "$stored_i" != "$expected_i" ]]; then
+    log_warn "Step '${step}' inputs changed since completion; will re-run."
+    return 1
   fi
-  log_warn "Step '${step}' inputs changed since completion; will re-run."
-  return 1
+
+  # ── Verify outputs still exist and match ────────────────────────────────
+  local expected_o stored_o
+  expected_o="$(_step_outputs_hash "$step")"
+  [[ -z "$expected_o" ]] && expected_o="none"
+  stored_o="$(grep -E '^outputs_sha256=' "$marker" 2>/dev/null | head -1 | cut -d= -f2)"
+  if [[ -z "$stored_o" ]]; then
+    log_warn "Step '${step}' marker is missing its outputs hash (corrupt/legacy); treating as not done. Will re-run."
+    return 1
+  fi
+  if [[ "$stored_o" != "$expected_o" ]]; then
+    log_warn "Step '${step}' output artifact is missing or changed since completion (corruption/truncation/deletion); will re-run."
+    return 1
+  fi
+
+  return 0
 }
 
 require_done() {
@@ -302,14 +423,100 @@ acquire_step_lock() {
   # Lock held until fd closes at script exit
 }
 
+# ── Orchestrator step runner with bounded retry ──────────────────────────
+# A transient fault (network blip while pulling refs, brief OOM, flaky FS)
+# should not throw away hours of completed pipeline work. We retry a failed
+# step up to HOMOPAN_STEP_RETRIES times (default 2) with a fixed backoff.
+# This composes with Toil's own per-job --retryCount and with Cactus
+# --restart: a retried Cactus step resumes from its preserved jobstore instead
+# of starting over. Set HOMOPAN_STEP_RETRIES=0 to disable.
+run_step_with_retry() {
+  local step="$1" script="$2"
+  local max_retries="${HOMOPAN_STEP_RETRIES:-2}"
+  local delay="${HOMOPAN_STEP_RETRY_DELAY:-15}"
+  local attempt=1 rc=0
+  while :; do
+    log_step "Running ${step} (attempt ${attempt}/$((max_retries + 1)))"
+    rc=0; bash "${script}" || rc=$?
+    (( rc == 0 )) && return 0
+    if (( attempt > max_retries )); then
+      log_error "Step ${step} FAILED after ${attempt} attempt(s) (exit ${rc})"
+      return "${rc}"
+    fi
+    log_warn "Step ${step} failed (exit ${rc}); retrying in ${delay}s (transient-fault recovery)..."
+    sleep "${delay}"
+    ((attempt++)) || true
+  done
+}
+
+# ── Sandbox-by-default for compute (#6: opt-out, probe + fallback) ────────
+# Policy: the compute SHOULD run through the OS sandbox (scripts/sandbox_run.sh)
+# by default. But nested apptainer-in-bubblewrap needs unprivileged user
+# namespaces, which not every host has -- so we PROBE once and, if the sandbox
+# cannot run here, warn loudly and FALL BACK to direct compute (so the pipeline
+# still works) rather than silently doing nothing.
+#
+# Override the probe explicitly:
+#   HOMOPAN_SANDBOX_COMPUTE=1  force sandboxed compute (fail if it can't run)
+#   HOMOPAN_SANDBOX_COMPUTE=0  force direct compute (no sandbox)
+#   (unset / "auto")          default: probe, sandbox if possible else fall back
+_sandbox_probe_cache=""
+_probe_sandbox_ok() {
+  local bw="${HOMOPAN_BWRAP_BIN:-bwrap}"
+  if ! command -v "${bw}" >/dev/null 2>&1; then
+    log_warn "sandbox-compute: '${bw}' not found -> falling back to DIRECT compute (no isolation). Install bubblewrap, or set HOMOPAN_SANDBOX_COMPUTE=0 to silence."
+    return 1
+  fi
+  # Can bwrap actually create the namespaces here? (unprivileged userns check)
+  if ! "${bw}" --unshare-user --unshare-net --ro-bind /usr /usr --tmpfs /tmp true >/dev/null 2>&1; then
+    log_warn "sandbox-compute: bwrap cannot create a user namespace on this host (needs unprivileged userns) -> falling back to DIRECT compute. Force isolation with HOMOPAN_SANDBOX_COMPUTE=1."
+    return 1
+  fi
+  return 0
+}
+# Returns 0 if compute should be sandboxed, 1 otherwise. Probes once, caches.
+sandbox_compute_active() {
+  case "${HOMOPAN_SANDBOX_COMPUTE:-auto}" in
+    1) return 0 ;;
+    0) return 1 ;;
+  esac
+  if [[ -z "${_sandbox_probe_cache}" ]]; then
+    if _probe_sandbox_ok; then
+      _sandbox_probe_cache=1
+      log_info "sandbox-compute: enabled by default (probe OK). Disable with HOMOPAN_SANDBOX_COMPUTE=0."
+    else
+      _sandbox_probe_cache=0
+    fi
+  fi
+  [[ "${_sandbox_probe_cache}" == "1" ]]
+}
+
+# ── Cactus reproducibility seed (#10) ─────────────────────────────────────
+# A fixed seed makes the alignment reproducible. cactus only accepts --seed on
+# versions that support it, so probe `cactus --help` ONCE (cheap vs hours of
+# alignment) and pass it only when supported; otherwise warn and continue.
+# Set CACTUS_SEED to a specific integer, or CACTUS_SEED="" to disable seeding.
+_cactus_seed_cache=""
+_cactus_seed_args() {
+  local seed="${CACTUS_SEED-0}"
+  [[ -z "${seed}" ]] && return 0   # seeding explicitly disabled
+  if [[ -z "${_cactus_seed_cache}" ]]; then
+    if run_in_container cactus --help 2>&1 | grep -q -- '--seed'; then
+      _cactus_seed_cache="yes"
+    else
+      _cactus_seed_cache="no"
+      log_warn "Cactus in this container does not support --seed; runs will not be seed-reproducible."
+    fi
+  fi
+  [[ "${_cactus_seed_cache}" == "yes" ]] && printf '%s\n' "--seed" "${seed}"
+}
+
 # ── Container wrappers ───────────────────────────────────────────────────
-# Optionally route the container runtime through the OS sandbox (EXPERIMENTAL).
-# HOMOPAN_SANDBOX_COMPUTE=1 runs apptainer under scripts/sandbox_run.sh with the
-# data dirs bound and (by default) no network. NOTE: nested apptainer-inside-
-# bubblewrap can require host config (nested user namespaces); leave this OFF if
-# your apptainer cannot run nested. Default OFF -> behaviour unchanged.
+# Routes the container runtime through the OS sandbox when sandbox_compute_active
+# (see #6 above): sandbox_run.sh binds the data dirs and (by default) cuts
+# network. Falls back to direct apptainer when the host can't nest the sandbox.
 _apptainer() {
-  if [[ "${HOMOPAN_SANDBOX_COMPUTE:-0}" == "1" ]]; then
+  if sandbox_compute_active; then
     HOMOPAN_EXTRA_BINDS="${HOMOPAN_EXTRA_BINDS:-} ${GENOMES_DIR} ${TEST_GENOMES_DIR} ${WORK_DIR}" \
     HOMOPAN_PASS_ENV="APPTAINER_CACHEDIR APPTAINER_TMPDIR ${HOMOPAN_PASS_ENV:-}" \
       bash "${SCRIPTS_DIR}/sandbox_run.sh" apptainer "$@"
@@ -340,15 +547,21 @@ run_cactus() {
   local iso_args=()
   [[ "${HOMOPAN_APPTAINER_ISOLATE:-0}" == "1" ]] && iso_args+=(--containall --no-home --cleanenv)
   [[ "${HOMOPAN_APPTAINER_NONET:-0}" == "1" ]]   && iso_args+=(--net --network none)
+  # Toil retries each failed job up to --retryCount times before aborting the
+  # whole run -- absorbs transient faults (network blips, OOM-kill, flaky FS)
+  # without losing hours of completed work. Override with CACTUS_RETRY_COUNT.
+  local retry_args=(--retryCount "${CACTUS_RETRY_COUNT:-2}")
+  # Reproducibility seed (no-op if the container's cactus lacks --seed).
+  local seed_args=(); mapfile -t seed_args < <(_cactus_seed_args)
   # timeout must wrap a real binary (bash or apptainer), never a shell function.
-  if [[ "${HOMOPAN_SANDBOX_COMPUTE:-0}" == "1" ]]; then
+  if sandbox_compute_active; then
     HOMOPAN_EXTRA_BINDS="${HOMOPAN_EXTRA_BINDS:-} ${GENOMES_DIR} ${TEST_GENOMES_DIR} ${WORK_DIR}" \
     HOMOPAN_PASS_ENV="APPTAINER_CACHEDIR APPTAINER_TMPDIR ${HOMOPAN_PASS_ENV:-}" \
       timeout "${CACTUS_TIMEOUT:-172800}" bash "${SCRIPTS_DIR}/sandbox_run.sh" \
-        apptainer exec "${iso_args[@]}" "${bind_args[@]}" "${SIF}" cactus --binariesMode local "$@"
+        apptainer exec "${iso_args[@]}" "${bind_args[@]}" "${SIF}" cactus --binariesMode local "${retry_args[@]}" "${seed_args[@]}" "$@"
   else
     timeout "${CACTUS_TIMEOUT:-172800}" \
-      apptainer exec "${iso_args[@]}" "${bind_args[@]}" "${SIF}" cactus --binariesMode local "$@"
+      apptainer exec "${iso_args[@]}" "${bind_args[@]}" "${SIF}" cactus --binariesMode local "${retry_args[@]}" "${seed_args[@]}" "$@"
   fi
 }
 
@@ -381,6 +594,28 @@ assert_file_nonempty() {
   log_ok "${label}: $(du -h "$f" | cut -f1)"
 }
 
+# ── HAL structural validation (gate before mark_done) ─────────────────────
+# Non-empty is NOT enough: a truncated-but-non-empty HAL passes -s but is
+# corrupt. halValidate parses the container structure end-to-end, so a partial
+# write fails it. Call this as the completion gate in the Cactus steps, BEFORE
+# mark_done, so a corrupt alignment is never recorded as done.
+assert_hal_valid() {
+  local hal="$1"
+  local label="${2:-$(basename "$hal")}"
+  assert_file_nonempty "$hal" "$label"
+  local out="${QC_DIR}/$(basename "$hal").validate.txt"
+  log_step "halValidate gate: ${label}"
+  if run_halValidate "$hal" > "${out}" 2>&1; then
+    grep -q "File valid" "${out}" || log_warn "halValidate exited 0 but did not print 'File valid'"
+    log_ok "halValidate: ${label} is structurally valid"
+  else
+    local rc=$?
+    log_error "halValidate failed for ${label} (exit ${rc}):"
+    cat "${out}"
+    die "HAL is invalid/corrupt: $(sanitize_path "$hal"). Refusing to mark step done."
+  fi
+}
+
 # ── Checksum helper ──────────────────────────────────────────────────────
 compute_sha256() {
   sha256sum "$1" | cut -d' ' -f1
@@ -389,15 +624,30 @@ compute_sha256() {
 # ── Environment capture ──────────────────────────────────────────────────
 capture_env() {
   local outfile="${1:-${QC_DIR}/environment.txt}"
+  # Compute the SIF content digest (#10): provenance of the exact container used.
+  # apptainer can report it cheaply; fall back to a sha256 of the .sif file.
+  local sif_digest="N/A"
+  if [[ -f "${SIF}" ]]; then
+    sif_digest=$(apptainer sif header "${SIF}" 2>/dev/null | awk -F: '/[Ss]ha256|[Dd]igest/{gsub(/ /,"",$2);print $2;exit}')
+    [[ -z "${sif_digest}" || "${sif_digest}" == "N/A" ]] && sif_digest=$(sha256sum "${SIF}" 2>/dev/null | cut -d' ' -f1)
+  fi
+  # APPEND a timestamped block instead of overwriting (#14): keep run history so
+  # an earlier run's environment isn't silently lost when a later step re-runs.
   {
-    echo "=== Environment captured at $(_ts) ==="
+    echo "=== Environment captured at $(_ts) (run ${RUN_ID}) ==="
+    echo "run_id=${RUN_ID}"
+    echo "agent=${HOMOPAN_AGENT:-${CLAUDE_AGENT:-unknown}}"
+    echo "session=${HOMOPAN_SESSION_ID:-${CLAUDE_SESSION_ID:-unknown}}"
     echo "PROJECT_ROOT=${PROJECT_ROOT}"
     echo "SIF=$(sanitize_path "${SIF}")"
+    echo "sif_sha256=${sif_digest}"
     echo "hostname=$(hostname)"
     echo "uname=$(uname -a)"
     echo "cores=$(nproc)"
     echo "ram_gb=$(free -g | awk '/Mem:/{print $2}')"
     echo "disk_avail_gb=$(df -BG "${PROJECT_ROOT}" | awk 'NR==2{print $4}' | tr -d 'G')"
+    echo "sandbox_compute=${HOMOPAN_SANDBOX_COMPUTE:-auto}"
+    echo "cactus_seed=${CACTUS_SEED-0}"
     echo "apptainer=$(apptainer --version 2>/dev/null || echo 'N/A')"
     echo "samtools=$(samtools --version 2>/dev/null | head -1 || echo 'N/A')"
     echo "bedtools=$(bedtools --version 2>/dev/null || echo 'N/A')"
@@ -405,8 +655,9 @@ capture_env() {
     echo "halStats_in_container=$(run_in_container halStats --version 2>&1 | head -1 || echo 'N/A')"
     echo "jq=$(jq --version 2>/dev/null || echo 'N/A')"
     echo "bash=${BASH_VERSION}"
-  } > "$outfile"
-  log_ok "Environment captured to $(sanitize_path "$outfile")"
+    echo ""
+  } >> "$outfile"
+  log_ok "Environment appended to $(sanitize_path "$outfile") (SIF ${sif_digest:0:12}...)"
 }
 
 # ── Script banner ─────────────────────────────────────────────────────────

@@ -49,6 +49,9 @@ log_info "Output:  $(sanitize_path "${HAL_TEST}")"
 log_info "Log:     $(sanitize_path "${LOGFILE}")"
 log_info "Mode:    ${RESTART_FLAG[*]:-fresh}"
 
+# Capture cactus's own exit code (not tee's) without letting set -e abort
+# first, so we can roll back a partial HAL before reporting the failure.
+set +e
 run_cactus \
   "${JS_TEST}" \
   "${SEQFILE_TEST}" \
@@ -57,13 +60,20 @@ run_cactus \
   --realTimeLogging true \
   "${RESTART_FLAG[@]}" \
   2>&1 | tee "${LOGFILE}"
+cactus_rc=${PIPESTATUS[0]}
+set -e
 
-if (( PIPESTATUS[0] == 124 )); then
-  die "Cactus test alignment timed out after ${CACTUS_TIMEOUT:-172800}s"
+# ── Rollback partial HAL on failure (jobstore is preserved for --restart) ──
+if (( cactus_rc != 0 )); then
+  [[ -f "${HAL_TEST}" ]] && { log_warn "Removing partial/incomplete HAL"; rm -f "${HAL_TEST}"; }
+  if (( cactus_rc == 124 )); then
+    die "Cactus test alignment timed out after ${CACTUS_TIMEOUT:-172800}s. Jobstore preserved; re-run to --restart."
+  fi
+  die "Cactus test alignment failed (exit ${cactus_rc}). Jobstore preserved; re-run to resume (--restart)."
 fi
 
-# ── Verify output ─────────────────────────────────────────────────────────
-assert_file_nonempty "${HAL_TEST}" "Test HAL"
+# ── Verify output (structural gate, not just non-empty) ────────────────────
+assert_hal_valid "${HAL_TEST}" "Test HAL"
 
 log_ok "Cactus test alignment complete"
 mark_done "04_run_test_cactus"

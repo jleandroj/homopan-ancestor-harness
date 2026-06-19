@@ -16,7 +16,7 @@ echo -e "${BOLD}========================================${NC}"
 
 # ── 1. Harness self-tests (no genomes/SIF required) ───────────────────────
 echo ""; echo -e "${BOLD}1. Self-tests${NC}"
-for t in tests/test_idempotency.sh tests/test_jobstore_guard.sh tests/test_concurrency.sh tests/test_egress.sh tests/test_sandbox.sh tests/test_e2e_synthetic.sh tests/test_e2e_mock.sh tests/test_gate.sh tests/test_gate_sandbox.sh; do
+for t in tests/test_idempotency.sh tests/test_jobstore_guard.sh tests/test_concurrency.sh tests/test_egress.sh tests/test_sandbox.sh tests/test_e2e_synthetic.sh tests/test_e2e_mock.sh tests/test_gate.sh tests/test_gate_exitcode.sh tests/test_gate_sandbox.sh tests/test_cmd_detector_fuzz.sh tests/test_skill_contracts.sh; do
   if [[ -f "${t}" ]]; then
     if bash "${t}" >/tmp/verify_$$.log 2>&1; then
       echo -e "  ${GREEN}[PASS]${NC} ${t}"

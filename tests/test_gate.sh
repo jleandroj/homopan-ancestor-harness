@@ -29,14 +29,7 @@ TOTAL=0
 pass() { echo -e "  ${GREEN}[PASS]${NC} $*"; ((PASSED++)) || true; ((TOTAL++)) || true; }
 fail() { echo -e "  ${RED}[FAIL]${NC} $*"; ((FAILED++)) || true; ((TOTAL++)) || true; }
 
-# ── Helper: run gate with simulated hook input ────────────────────────────
-run_gate() {
-  local tool="$1"
-  local input="$2"
-  echo "${input}" | bash "${GATE}" 2>/dev/null
-  return $?
-}
-
+# ── Helpers: build simulated hook input ───────────────────────────────────
 make_bash_input() {
   local cmd="$1"
   printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "${cmd}"

@@ -50,10 +50,12 @@ case "$tool" in
   which) echo "/usr/local/bin/${rest[0]:-x}"; exit 0;;
   cactus)
     for a in "${rest[@]}"; do [[ "$a" == "--version" ]] && { echo "9.1.2-mock"; exit 0; }; done
+    for a in "${rest[@]}"; do [[ "$a" == "--help" ]] && { echo "options: --binariesMode --retryCount --seed --batchSystem"; exit 0; }; done
     pos=(); j=0
     while (( j < ${#rest[@]} )); do
       case "${rest[$j]}" in
-        --binariesMode|--batchSystem|--realTimeLogging) j=$((j+2));;
+        # value-taking options (must skip their argument so positionals stay aligned)
+        --binariesMode|--batchSystem|--realTimeLogging|--retryCount|--seed) j=$((j+2));;
         --*) j=$((j+1));;
         *) pos+=("${rest[$j]}"); j=$((j+1));;
       esac

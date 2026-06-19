@@ -5,6 +5,7 @@ source "$(dirname "$0")/config.sh"
 
 script_banner "05 - Validate Test HAL"
 
+acquire_step_lock "05_validate_test_hal"
 require_done "04_run_test_cactus"
 assert_file_nonempty "${HAL_TEST}" "Test HAL"
 

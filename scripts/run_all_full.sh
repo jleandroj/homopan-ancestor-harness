@@ -7,9 +7,12 @@ source "$(dirname "$0")/config.sh"
 script_banner "HomoPan Full Pipeline (Orchestrator)"
 
 # ── Pipeline lock (prevents concurrent orchestrator runs) ────────────────
-exec {_PIPELINE_LOCK_FD}>"${TARGETS_DIR}/pipeline_full.lock"
+# ONE lock shared by BOTH orchestrators (test + full). They write the same
+# targets/, work/ and seqfiles, so they must never run concurrently -- a
+# per-mode lock would let them race and corrupt shared state.
+exec {_PIPELINE_LOCK_FD}>"${TARGETS_DIR}/pipeline.lock"
 if ! flock -n "${_PIPELINE_LOCK_FD}"; then
-  die "Another full pipeline is already running"
+  die "Another pipeline (test or full) is already running"
 fi
 
 STEPS=(
@@ -43,11 +46,9 @@ for step in "${STEPS[@]}"; do
     die "Script not found or not executable: $(sanitize_path "${SCRIPT}")"
   fi
 
-  log_step "Running ${step}"
-  if bash "${SCRIPT}"; then
+  if run_step_with_retry "${step}" "${SCRIPT}"; then
     ((RAN++)) || true
   else
-    log_error "Step ${step} FAILED (exit $?)"
     ((FAILED++)) || true
     break
   fi

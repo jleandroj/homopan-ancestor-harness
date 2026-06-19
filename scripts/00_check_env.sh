@@ -78,8 +78,14 @@ fi
 
 # ── Directories ───────────────────────────────────────────────────────────
 log_step "Checking directories"
-for d in scripts logs qc targets results genomes test_genomes work; do
+# Shared, project-root dirs (NOT namespaced)
+for d in scripts genomes; do
   check "Dir: ${d}/" test -d "${PROJECT_ROOT}/${d}"
+done
+# State dirs: resolved from config.sh vars so they follow HOMOPAN_RUN_NS
+# (runs/<NS>/...) instead of being hardcoded at the project root.
+for sd in "${LOGS_DIR}" "${QC_DIR}" "${TARGETS_DIR}" "${RESULTS_DIR}" "${TEST_GENOMES_DIR}" "${WORK_DIR}"; do
+  check "Dir: $(sanitize_path "${sd}")" test -d "${sd}"
 done
 
 # ── Capture environment ──────────────────────────────────────────────────

@@ -38,9 +38,22 @@ HOMOPAN_WORKDIR=/mnt/s1/homopan_work bash scripts/run_all_full.sh
 
 ## Idempotency
 
-Steps already completed (targets/*.done) are skipped automatically.
-To force re-run a step: `rm targets/STEP_NAME.done`
-To re-run everything: `rm targets/*.done`
+Steps already completed (`<state>/targets/*.done`) are skipped automatically,
+where `<state>` is the project root by default, or `runs/$HOMOPAN_RUN_NS/` when a
+namespace is set (see Multi-agent below).
+To force re-run a step: `rm <state>/targets/STEP_NAME.done`
+To re-run everything: `rm <state>/targets/*.done`
+
+## Multi-agent isolation (HOMOPAN_RUN_NS)
+
+When several agents share this repo, each MUST set a distinct `HOMOPAN_RUN_NS`
+so their state (targets/results/work/logs/seqfiles) is isolated under
+`runs/<NS>/` and they don't collide. `genomes/` stays shared read-only. Example:
+```bash
+HOMOPAN_RUN_NS="$AGENT_NAME" bash scripts/run_all_test.sh
+```
+Without `HOMOPAN_RUN_NS`, state stays at the project root (legacy single-agent
+layout). Two agents with NO namespace serialize on one shared `pipeline.lock`.
 
 ## Error Handling
 

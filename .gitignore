@@ -19,6 +19,8 @@ apptainer_tmp/
 # ── Pipeline working data ───────────────────────────────────────────────
 work/
 results/
+# Per-agent namespaced state (HOMOPAN_RUN_NS): runs/<NS>/{targets,results,work,...}
+runs/
 
 # ── Security / ephemeral ────────────────────────────────────────────────
 .claude/.gate_pass

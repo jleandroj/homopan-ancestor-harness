@@ -70,6 +70,28 @@ else
   pass "failed step left no .done marker"
 fi
 
+# ── 4. Both orchestrators share ONE lock (no cross-orchestrator race) ─────
+echo ""; echo -e "${BOLD}4. Unified orchestrator lock${NC}"
+T="${PROJECT_ROOT}/scripts/run_all_test.sh"; F="${PROJECT_ROOT}/scripts/run_all_full.sh"
+tl=$(grep -oE 'pipeline[A-Za-z_]*\.lock' "${T}" | head -1)
+fl=$(grep -oE 'pipeline[A-Za-z_]*\.lock' "${F}" | head -1)
+if [[ -n "${tl}" && "${tl}" == "${fl}" ]]; then
+  pass "test+full orchestrators use the same lock file (${tl})"
+else
+  fail "orchestrators use different locks (test='${tl}' full='${fl}') -> can race over shared state"
+fi
+if grep -qE 'pipeline_(test|full)\.lock' "${T}" "${F}"; then
+  fail "a per-mode pipeline_{test,full}.lock survived (regression)"
+else
+  pass "no per-mode pipeline lock remains"
+fi
+# The shared lock must actually be mutually exclusive.
+LOCK="${SANDBOX}/pipeline.lock"; RES2="${SANDBOX}/got2"; : > "${RES2}"
+orch() { exec {fd}>"${LOCK}"; if flock -n "${fd}"; then echo got >> "${RES2}"; sleep 0.5; fi; }
+orch & orch & orch & wait
+n2=$(wc -l < "${RES2}" | tr -d ' ')
+[[ "${n2}" == "1" ]] && pass "only one orchestrator can hold pipeline.lock (${n2})" || fail "expected 1 holder, got ${n2}"
+
 echo ""
 echo -e "${BOLD}════════════════════════════════════════${NC}"
 echo -e "${BOLD}  Results: ${PASSED} passed, ${FAILED} failed${NC}"

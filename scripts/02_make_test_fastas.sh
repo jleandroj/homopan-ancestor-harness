@@ -15,6 +15,7 @@ source "$(dirname "$0")/config.sh"
 
 script_banner "02 - Make Test FASTAs (${TEST_REGION_LEN} bp)"
 
+acquire_step_lock "02_make_test_fastas"
 require_done "01_validate_fastas"
 
 mkdir -p "${TEST_GENOMES_DIR}"

@@ -38,8 +38,9 @@ for i in "${!SPECIES[@]}"; do
   samtools faidx "${TMP}/genomes/${sp}.fa" 2>/dev/null
 done
 
-# Satisfy require_done "00_check_env" (existence-only step)
-printf 'timestamp=synthetic\ninputs_sha256=\n' > "${TMP}/targets/00_check_env.done"
+# Satisfy require_done "00_check_env" (existence-only step). Must be a valid
+# schema-2 marker: a bare timestamp-only marker is now rejected (see is_done).
+printf 'schema=2\ntimestamp=synthetic\nrun_id=synthetic\ninputs_sha256=none\noutputs_sha256=none\n' > "${TMP}/targets/00_check_env.done"
 
 echo ""
 echo -e "${BOLD}E2E Synthetic Pipeline (01 -> 02 -> 03)${NC}"

@@ -6,6 +6,7 @@ set -uo pipefail
 
 SRC_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CURL="${SRC_ROOT}/scripts/net_wrappers/curl"
+WGET="${SRC_ROOT}/scripts/net_wrappers/wget"
 RED='\033[0;31m'; GREEN='\033[0;32m'; BOLD='\033[1m'; NC='\033[0m'
 PASSED=0; FAILED=0
 pass() { echo -e "  ${GREEN}[PASS]${NC} $*"; ((PASSED++)) || true; }
@@ -37,6 +38,17 @@ denied --config "${SBX}/bad.cfg"         && pass "config file w/ unlisted host d
 allowed_guard https://example.com/       && pass "allowlisted host passes the guard"    || fail "allowlisted host should pass guard"
 echo 'url = "https://example.com/ok"' > "${SBX}/ok.cfg"
 allowed_guard --config "${SBX}/ok.cfg"   && pass "config file w/ allowlisted host passes" || fail "good config should pass"
+
+# ── wget wrapper enforces the SAME allowlist (#13: parity with curl) ──────
+# -O /dev/null so an allowlisted host that actually resolves doesn't litter the
+# CWD with a downloaded index.html (wget writes to a file by default).
+wdenied()  { bash "${WGET}" -O /dev/null "$@" >/dev/null 2>&1; [[ $? -eq 7 ]]; }
+wallowed() { bash "${WGET}" --timeout=1 -q -O /dev/null "$@" >/dev/null 2>&1; [[ $? -ne 7 ]]; }
+echo ""
+wdenied  https://evil.example.org/x      && pass "wget: unlisted host denied"          || fail "wget unlisted should deny"
+wdenied  https://10.0.0.5/x              && pass "wget: raw IP denied"                 || fail "wget raw IP should deny"
+wallowed https://example.com/            && pass "wget: allowlisted host passes guard" || fail "wget allowlisted should pass"
+wallowed https://sub.example.com/a       && pass "wget: subdomain of allowlisted passes" || fail "wget subdomain should pass"
 
 echo ""
 echo -e "${BOLD}════════════════════════════════════════${NC}"

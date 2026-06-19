@@ -5,6 +5,7 @@ source "$(dirname "$0")/config.sh"
 
 script_banner "03 - Generate Seqfiles"
 
+acquire_step_lock "03_make_seqfiles"
 require_done "01_validate_fastas"
 
 # ── Helper: generate seqfile ─────────────────────────────────────────────

@@ -5,6 +5,7 @@ source "$(dirname "$0")/config.sh"
 
 script_banner "08 - Extract Ancestors"
 
+acquire_step_lock "08_extract_ancestors"
 require_done "07_validate_full_hal"
 assert_file_nonempty "${HAL_FULL}" "Full HAL"
 
