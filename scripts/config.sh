@@ -517,7 +517,7 @@ _cactus_seed_args() {
 # network. Falls back to direct apptainer when the host can't nest the sandbox.
 _apptainer() {
   if sandbox_compute_active; then
-    HOMOPAN_EXTRA_BINDS="${HOMOPAN_EXTRA_BINDS:-} ${GENOMES_DIR} ${TEST_GENOMES_DIR} ${WORK_DIR}" \
+    HOMOPAN_EXTRA_BINDS="${HOMOPAN_EXTRA_BINDS:-} $(realpath -m "${GENOMES_DIR}" 2>/dev/null) $(realpath -m "${TEST_GENOMES_DIR}" 2>/dev/null) $(realpath -m "${WORK_DIR}" 2>/dev/null)" \
     HOMOPAN_PASS_ENV="APPTAINER_CACHEDIR APPTAINER_TMPDIR ${HOMOPAN_PASS_ENV:-}" \
       bash "${SCRIPTS_DIR}/sandbox_run.sh" apptainer "$@"
   else
@@ -555,7 +555,7 @@ run_cactus() {
   local seed_args=(); mapfile -t seed_args < <(_cactus_seed_args)
   # timeout must wrap a real binary (bash or apptainer), never a shell function.
   if sandbox_compute_active; then
-    HOMOPAN_EXTRA_BINDS="${HOMOPAN_EXTRA_BINDS:-} ${GENOMES_DIR} ${TEST_GENOMES_DIR} ${WORK_DIR}" \
+    HOMOPAN_EXTRA_BINDS="${HOMOPAN_EXTRA_BINDS:-} $(realpath -m "${GENOMES_DIR}" 2>/dev/null) $(realpath -m "${TEST_GENOMES_DIR}" 2>/dev/null) $(realpath -m "${WORK_DIR}" 2>/dev/null)" \
     HOMOPAN_PASS_ENV="APPTAINER_CACHEDIR APPTAINER_TMPDIR ${HOMOPAN_PASS_ENV:-}" \
       timeout "${CACTUS_TIMEOUT:-172800}" bash "${SCRIPTS_DIR}/sandbox_run.sh" \
         apptainer exec "${iso_args[@]}" "${bind_args[@]}" "${SIF}" cactus --binariesMode local "${retry_args[@]}" "${seed_args[@]}" "$@"
