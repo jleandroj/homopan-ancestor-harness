@@ -8,6 +8,22 @@ set -euo pipefail
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPTS_DIR}/.." && pwd)"
 
+# ── Canonical jq: prefer the capable build over the snap shim ──────────────
+# /snap/bin/jq is a snap SHIM (-> /usr/bin/snap): CONFINED (cannot open files
+# by path) and dependent on snapd, so bare `jq` would resolve differently by
+# ambient PATH (foreground vs background vs hook). Prepend a real/conda jq so
+# every component resolves the SAME capable jq. Override with HOMOPAN_JQ.
+for _jqc in "${HOMOPAN_JQ:-}" \
+            "${HOME}/miniconda3/envs/homopan_ancestor/bin/jq" \
+            "${HOME}/miniconda3/bin/jq" \
+            "${HOME}/anaconda3/envs/homopan_ancestor/bin/jq" \
+            /usr/bin/jq /bin/jq; do
+  if [[ -n "${_jqc}" && -x "${_jqc}" ]]; then
+    export PATH="$(dirname "${_jqc}"):${PATH}"; export HOMOPAN_JQ="${_jqc}"; break
+  fi
+done
+unset _jqc
+
 # ── Run identity (one id shared by every step of a single pipeline run) ────
 # The orchestrator sets+exports it first; child step scripts inherit it.
 RUN_ID="${HOMOPAN_RUN_ID:-$(date +%Y%m%d_%H%M%S)_$$}"

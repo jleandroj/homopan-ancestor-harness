@@ -169,5 +169,39 @@ CWD_TAG="${_CWD:-${HOMOPAN_CWD:-unknown}}"''', 1),
   '''    LINE=$(printf '{"timestamp":"%s","run_id":"%s","agent":"%s","session":"%s","cwd":"%s","tool":"%s","detail":"%s","outcome":"%s"}' \\
       "${TS_ESC}" "${RUN_ESC}" "${AG_ESC}" "${SE_ESC}" "${CW_ESC}" "${TOOL_ESC}" "${DETAIL_ESC}" "${OUTCOME_ESC}")''', 1),
 ])
+# ── #15: prefer the capable jq over the snap shim, deterministically ───────
+# /snap/bin/jq -> /usr/bin/snap is confined (no file-path reads) + snapd-bound,
+# and `command -v jq` picks it first. Prepend a real/conda jq before each jq
+# resolution so the gate/logger/init all use the SAME capable jq everywhere.
+# Each edit also tweaks the anchor text so re-applying is a no-op (idempotent).
+JQ_PREPEND = (
+'for _jqc in "${HOMOPAN_JQ:-}" "${HOME}/miniconda3/envs/homopan_ancestor/bin/jq" "${HOME}/miniconda3/bin/jq" "${HOME}/anaconda3/envs/homopan_ancestor/bin/jq" /usr/bin/jq /bin/jq; do\n'
+'  if [[ -n "${_jqc}" && -x "${_jqc}" ]]; then export PATH="$(dirname "${_jqc}"):${PATH}"; break; fi\n'
+'done\n'
+'unset _jqc 2>/dev/null || true\n'
+)
+
+edit(".claude/gate_check.sh", [(
+'''if ! command -v jq &>/dev/null; then
+  # Try known conda locations
+  for candidate in \\''',
+JQ_PREPEND + '''if ! command -v jq &>/dev/null; then
+  # Fallback: known conda locations (#15)
+  for candidate in \\''', 1)])
+
+edit(".claude/bitacora_log.sh", [(
+'''JQ_BIN=""
+if command -v jq &>/dev/null; then
+  JQ_BIN="jq"''',
+JQ_PREPEND + '''JQ_BIN=""
+if command -v jq >/dev/null 2>&1; then   # capable jq prepended above (#15)
+  JQ_BIN="jq"''', 1)])
+
+edit("init.sh", [(
+'''if command -v jq &>/dev/null; then
+  pass "jq: $(jq --version 2>/dev/null)"''',
+JQ_PREPEND + '''if command -v jq &>/dev/null; then
+  pass "jq: $(jq --version 2>/dev/null) (capable build preferred #15)"''', 1)])
+
 print("\nAll protected-file edits applied. Next: bash init.sh && bash verify.sh")
 PY
