@@ -88,4 +88,9 @@ if [[ -d "${QC_DIR}" ]]; then
 fi
 echo ""
 
+# Immutable per-run manifest (reproducibility): step 10 runs in BOTH the test
+# and full orchestrators, so every run -- not only full ones -- is replayable
+# and comparable via scripts/compare_runs.sh / repro_verify.sh.
+write_run_manifest
+
 mark_done "10_qc_summary"

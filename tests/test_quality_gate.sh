@@ -53,16 +53,18 @@ printf 'Anc_HomoPan\tcafef00d\t1000\t0.0100\n'     > "${QC_DIR}/ancestor_checksu
 write_run_manifest >/dev/null 2>&1
 MAN="${QC_DIR}/manifests/${RUN_ID}.json"
 [[ -f "${MAN}" ]] && ok "manifest emitted ($(basename "${MAN}"))" || bad "manifest not written"
-JQ="$(command -v jq || echo "${HOME}/miniconda3/envs/homopan_ancestor/bin/jq")"
-if [[ -x "${JQ}" || -n "$(command -v jq)" ]]; then
-  "${JQ}" -e . < "${MAN}" >/dev/null 2>&1 && ok "manifest is valid JSON" || bad "manifest invalid JSON"
-  rid=$("${JQ}" -r '.run_id' < "${MAN}" 2>/dev/null)
-  [[ "${rid}" == "${RUN_ID}" ]] && ok "manifest run_id matches (${rid})" || bad "run_id mismatch: ${rid}"
-  "${JQ}" -e '.tools.sif_sha256 and .params.cactus_seed and .outputs.ancestors."Anc_HomoPan".n_fraction=="0.0100"' < "${MAN}" >/dev/null 2>&1 \
-    && ok "manifest carries tools+params+ancestor n_fraction" || bad "manifest missing expected fields"
-else
-  ok "jq absent -> skipping JSON field checks (flat fallback emitted)"
-fi
+# jq is routed to the capable build by config.sh (function); it reads stdin fine.
+jq -e . < "${MAN}" >/dev/null 2>&1 && ok "manifest is valid JSON" || bad "manifest invalid JSON"
+sch=$(jq -r '.schema' < "${MAN}" 2>/dev/null)
+[[ "${sch}" == "2" ]] && ok "manifest schema=2" || bad "schema mismatch: ${sch}"
+rid=$(jq -r '.meta.run_id' < "${MAN}" 2>/dev/null)
+[[ "${rid}" == "${RUN_ID}" ]] && ok "meta.run_id matches (${rid})" || bad "run_id mismatch: ${rid}"
+jq -e '.repro.sif_sha256 and .repro.cactus_seed and .repro.outputs.ancestors."Anc_HomoPan".n_fraction=="0.0100"' < "${MAN}" >/dev/null 2>&1 \
+  && ok "repro block carries sif+seed+ancestor n_fraction" || bad "repro block missing expected fields"
+rs=$(jq -r '.repro_sha256' < "${MAN}" 2>/dev/null)
+[[ "${rs}" =~ ^[0-9a-f]{64}$ ]] && ok "repro_sha256 present (${rs:0:12}...)" || bad "repro_sha256 missing/invalid"
+jq -e '(.meta|has("timestamp")) and (.meta|has("repro")|not)' < "${MAN}" >/dev/null 2>&1 \
+  && ok "meta holds timestamp; repro kept out of meta (deterministic separation)" || bad "meta/repro separation broken"
 
 # ── cleanup ───────────────────────────────────────────────────────────────
 rm -rf "${TMP}" "${SRC_ROOT}/runs/${HOMOPAN_RUN_NS}" 2>/dev/null

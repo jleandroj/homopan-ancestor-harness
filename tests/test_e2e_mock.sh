@@ -86,6 +86,7 @@ echo -e "${BOLD}═════════════════════�
 # Run the real orchestrator with the stub toolchain on PATH.
 echo ""; echo -e "${BOLD}1. Orchestrator${NC}"
 if PATH="${TMP}/bin:${PATH}" CACTUS_TIMEOUT=60 HOMOPAN_SKIP_PREFLIGHT=1 \
+   HOMOPAN_IGNORE_TOOLCHAIN_LOCK=1 \
    bash "${TMP}/scripts/run_all_full.sh" >"${TMP}/run.log" 2>&1; then
   pass "run_all_full.sh completed 00->10"
 else

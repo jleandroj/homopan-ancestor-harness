@@ -51,6 +51,12 @@ if [[ -f "${SIF}" ]]; then
   log_info "halStats version: $(run_halStats --version 2>&1 | head -1 || echo 'N/A')"
 fi
 
+# ── Toolchain lock (reproducibility): fail-closed on output-determining drift ─
+log_step "Verifying toolchain lock (reproducibility)"
+if ! verify_toolchain_lock; then
+  ((ERRORS++)) || true
+fi
+
 # ── Genomes ───────────────────────────────────────────────────────────────
 log_step "Checking genomes (${#SPECIES[@]} species)"
 for sp in "${SPECIES[@]}"; do

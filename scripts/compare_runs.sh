@@ -29,25 +29,32 @@ MA="${MANI_DIR}/${A}.json"; MB="${MANI_DIR}/${B}.json"
 [[ -f "${MA}" ]] || die "manifest not found: $(sanitize_path "${MA}")"
 [[ -f "${MB}" ]] || die "manifest not found: $(sanitize_path "${MB}")"
 
-# Flatten each manifest to sorted "path=value" leaf lines and diff them.
-# Read via STDIN so a confined jq (snap) that can't open file paths still works.
-_flat() { "${JQ}" -r 'paths(scalars) as $p | "\($p|join("."))=\(getpath($p))"' < "$1" | sort; }
+# Flatten the DETERMINISTIC repro{} block (NOT meta) to sorted "path=value"
+# leaf lines: meta (run_id, timestamp, host, llm) is expected to differ between
+# any two runs and must not mask the verdict. Read via STDIN (snap-jq safe).
+_flat() { "${JQ}" -r '(.repro // {}) | paths(scalars) as $p | "\($p|join("."))=\(getpath($p))"' < "$1" | sort; }
+_rsha() { "${JQ}" -r '.repro_sha256 // "none"' < "$1"; }
 
 echo "Comparing run manifests:"
 echo "  A = ${A}"
 echo "  B = ${B}"
 echo ""
-DIFF="$(diff <(_flat "${MA}") <(_flat "${MB}") | grep -E '^[<>]' || true)"
-if [[ -z "${DIFF}" ]]; then
-  echo "IDENTICAL -- every manifest field matches (tools, params, inputs, outputs)."
+# Headline verdict: the repro_sha256 (hash of the canonical repro{} block).
+RA="$(_rsha "${MA}")"; RB="$(_rsha "${MB}")"
+echo "repro_sha256:  A=${RA:0:16}...  B=${RB:0:16}..."
+if [[ "${RA}" == "${RB}" && "${RA}" != "none" ]]; then
+  echo "VERDICT: REPRODUCIBLE -- identical repro block (same inputs, params, toolchain, outputs)."
+  echo "         (Only meta differs: run_id/timestamp/host/llm -- expected, non-determining.)"
   exit 0
 fi
-echo "Differing fields ( < = ${A}, > = ${B} ):"
-echo "${DIFF}" | sed 's/^/  /'
+echo ""
+echo "Differing repro fields ( < = ${A}, > = ${B} ):"
+DIFF="$(diff <(_flat "${MA}") <(_flat "${MB}") | grep -E '^[<>]' || true)"
+echo "${DIFF:-  (repro leaves equal but repro_sha256 differs -- check schema/encoding)}" | sed 's/^/  /'
 echo ""
 echo "Interpretation:"
-echo "  tools.* differ            -> toolchain changed (container/host tool/seed)."
-echo "  params.* or inputs.* differ -> different data or parameters."
+echo "  inputs.* / newick / *_seed differ -> different DATA or PARAMETERS."
+echo "  sif_sha256 / cactus / samtools differ -> TOOLCHAIN changed."
 echo "  inputs.* SAME but outputs.* differ -> NON-DETERMINISM (e.g. unseeded"
-echo "       Cactus / Toil parallelism), not an input change."
-exit 0
+echo "       Cactus / Toil parallelism), NOT an input change."
+exit 1
