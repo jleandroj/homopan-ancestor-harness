@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
-# 02_make_test_fastas.sh -- Create 1 Mb test FASTAs using samtools (NOT seqkit)
-# Strategy: find ONE offset that gives <60% softmasking for ALL species,
-# so the test regions are homologous across species (same chr1 window).
+# 02_make_test_fastas.sh -- Create 1 Mb TECHNICAL test FASTAs (samtools, not seqkit)
+# Strategy: pick ONE coordinate offset with <60% softmasking in ALL species,
+# purely so Cactus has non-degenerate sequence to align.
+#
+# IMPORTANT -- these regions are NOT homologous across species:
+#   * the "first sequence" is just whatever contig leads each .fai (not
+#     guaranteed to be chr1, nor the same chromosome across assemblies);
+#   * equal coordinates are not orthologous (different lengths, indels,
+#     rearrangements between species).
+# The test HAL and any ancestor extracted from it are TECHNICAL-ONLY: they
+# validate pipeline mechanics, never biology (see agents.md caveats).
 set -euo pipefail
 source "$(dirname "$0")/config.sh"
 
@@ -14,9 +22,9 @@ mkdir -p "${TEST_GENOMES_DIR}"
 # Maximum acceptable softmasked fraction for a test region
 MAX_MASKED_FRAC=0.60
 
-# ── Phase 1: Find a single offset that works for ALL species ──────────────
+# ── Phase 1: Find a single offset usable in ALL species ───────────────────
 # We scan candidate offsets and for each, check softmasking in ALL species.
-# This ensures the test extracts homologous regions (same position on chr1).
+# This only avoids heavily-masked windows; it does NOT make regions homologous.
 
 CANDIDATE_OFFSETS=(0 10000000 20000000 30000000 50000000 100000000 150000000)
 BEST_OFFSET=""
@@ -132,5 +140,15 @@ for sp in "${SPECIES[@]}"; do
   log_ok "${sp}: test FASTA = ${TEST_BP} bp from ${FIRST_SEQ}:${START}-${END}"
 done
 
+# ── Technical-only caveat written alongside the test data ─────────────────
+cat > "${TEST_GENOMES_DIR}/README_TEST_REGIONS.txt" <<'EOF'
+These *.test1Mb.fa files are a TECHNICAL slice of each assembly's first
+sequence at a shared coordinate offset chosen only for low softmasking.
+They are NOT homologous/orthologous across species. The resulting test HAL,
+and any ancestor extracted from it, are for pipeline validation ONLY and have
+no biological meaning. Use the full pipeline (steps 06+) for biology.
+EOF
+
+log_warn "Test regions are TECHNICAL-ONLY (not homologous) -- see ${TEST_GENOMES_DIR##*/}/README_TEST_REGIONS.txt"
 log_ok "Test FASTAs created in $(sanitize_path "${TEST_GENOMES_DIR}")"
 mark_done "02_make_test_fastas"
