@@ -61,7 +61,14 @@ fi
 # On merged-/usr systems /bin,/sbin,/lib,/lib64 are symlinks into /usr, so we
 # bind /usr (+ /etc) and recreate those symlinks rather than binding them.
 SYS_BINDS=(--ro-bind /usr /usr)
-[[ -e /etc ]] && SYS_BINDS+=(--ro-bind /etc /etc)
+# Bind only the /etc entries actually needed (libs, certs, user/name lookup,
+# timezone) instead of all of /etc, to expose less host config.
+for e in /etc/ld.so.cache /etc/ld.so.conf /etc/ld.so.conf.d /etc/alternatives \
+         /etc/ssl /etc/pki /etc/ca-certificates /etc/ca-certificates.conf \
+         /etc/nsswitch.conf /etc/passwd /etc/group /etc/resolv.conf /etc/hosts \
+         /etc/localtime; do
+  [[ -e "$e" ]] && SYS_BINDS+=(--ro-bind "$e" "$e")
+done
 for d in bin sbin lib lib64; do
   if [[ -L "/$d" ]]; then
     SYS_BINDS+=(--symlink "$(readlink "/$d")" "/$d")

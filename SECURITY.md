@@ -53,7 +53,13 @@ and which are defense-in-depth, so "secure/prod" claims stay honest.
   `Write|Edit|...` matcher would silently miss any future mutating tool, so `*`
   is intentional.
 - **Logs** (`logs/bitacora.jsonl`): mutating tools only, secrets redacted,
-  size-rotated with `BITACORA_KEEP` generations.
+  size-rotated with `BITACORA_KEEP` generations; mirrored to an external
+  append-only audit log (`HOMOPAN_AUDIT_LOG`, default `~/.homopan_audit.jsonl`).
+- **Sandbox requires unprivileged user namespaces.** bubblewrap runs rootless
+  via user namespaces, so the host needs `kernel.unprivileged_userns_clone=1`
+  (Debian/Ubuntu) / a non-zero `user.max_user_namespaces`. Without it `bwrap`
+  fails and the sandbox is fail-closed (set `HOMOPAN_ALLOW_UNSANDBOXED=1` only
+  if you accept running without isolation).
 
 ## TL;DR
 
