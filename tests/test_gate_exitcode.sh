@@ -35,7 +35,7 @@ expect_allow() { local rc; rc=$(gate_rc "$1"); [[ "$rc" == "0" ]] && pass "ALLOW
 # Regenerate a valid gate pass so "allow" paths are reachable (must match init.sh).
 gen_pass() {
   local cd="${PROJECT_ROOT}/.claude" sec sh bh
-  sec=( "${PROJECT_ROOT}/CLAUDE.md" "${PROJECT_ROOT}/agents.md" "${cd}/gate_check.sh" "${cd}/bitacora_log.sh" "${cd}/settings.json" "${PROJECT_ROOT}/init.sh" )
+  sec=( "${PROJECT_ROOT}/CLAUDE.md" "${PROJECT_ROOT}/agents.md" "${cd}/gate_check.sh" "${cd}/cmd_detector.sh" "${cd}/bitacora_log.sh" "${cd}/settings.json" "${PROJECT_ROOT}/init.sh" )
   if [[ -d "${cd}/skills" ]]; then sh=$(find "${cd}/skills" -type f -print0 | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1); else sh="none"; fi
   bh=$(sha256sum "${PROJECT_ROOT}/scripts/sandbox_run.sh" "${PROJECT_ROOT}/scripts/net_wrappers/_guard.sh" "${PROJECT_ROOT}/scripts/net_wrappers/curl" "${PROJECT_ROOT}/scripts/net_wrappers/wget" "${PROJECT_ROOT}/egress_allowlist.txt" 2>/dev/null | sha256sum | cut -d' ' -f1)
   { sha256sum "${sec[@]}"; printf 'skills:%s\n' "${sh}"; printf 'boundary:%s\n' "${bh}"; } 2>/dev/null | sha256sum | cut -d' ' -f1

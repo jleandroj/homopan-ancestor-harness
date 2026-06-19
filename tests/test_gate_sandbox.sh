@@ -28,6 +28,7 @@ mkdir -p "${SBOX}/.claude"
 # Override with GATE_SRC=path to test a candidate gate (e.g. patches/gate_check.sh).
 GATE_SRC="${GATE_SRC:-${PROJECT_ROOT}/.claude/gate_check.sh}"
 cp "${GATE_SRC}"                             "${SBOX}/.claude/gate_check.sh"
+cp "${PROJECT_ROOT}/.claude/cmd_detector.sh" "${SBOX}/.claude/cmd_detector.sh"
 cp "${PROJECT_ROOT}/.claude/bitacora_log.sh" "${SBOX}/.claude/bitacora_log.sh"
 cp "${PROJECT_ROOT}/.claude/settings.json"   "${SBOX}/.claude/settings.json"
 cp "${PROJECT_ROOT}/CLAUDE.md"               "${SBOX}/CLAUDE.md"
@@ -50,7 +51,7 @@ GATE_PASS="${SBOX}/.claude/.gate_pass"
 gen_pass() {
   local files=(
     "${SBOX}/CLAUDE.md" "${SBOX}/agents.md"
-    "${SBOX}/.claude/gate_check.sh" "${SBOX}/.claude/bitacora_log.sh"
+    "${SBOX}/.claude/gate_check.sh" "${SBOX}/.claude/cmd_detector.sh" "${SBOX}/.claude/bitacora_log.sh"
     "${SBOX}/.claude/settings.json" "${SBOX}/init.sh"
   )
   local sh bh

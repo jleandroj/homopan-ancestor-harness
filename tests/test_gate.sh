@@ -145,12 +145,13 @@ done
 echo ""
 echo -e "${BOLD}5. Valid gate pass allows mutations${NC}"
 
-# Generate a valid gate pass (must match the 6-file security surface)
+# Generate a valid gate pass (must match the 7-file security surface)
 CLAUDE_DIR="${PROJECT_ROOT}/.claude"
 SECURITY_FILES=(
   "${CLAUDE_MD}"
   "${AGENTS_MD}"
   "${CLAUDE_DIR}/gate_check.sh"
+  "${CLAUDE_DIR}/cmd_detector.sh"
   "${CLAUDE_DIR}/bitacora_log.sh"
   "${CLAUDE_DIR}/settings.json"
   "${PROJECT_ROOT}/init.sh"
@@ -286,6 +287,7 @@ if $ALL_SEC_EXIST; then
     "${CLAUDE_MD}"
     "${AGENTS_MD}"
     "${CLAUDE_DIR}/gate_check.sh"
+    "${CLAUDE_DIR}/cmd_detector.sh"
     "${CLAUDE_DIR}/bitacora_log.sh"
     "${CLAUDE_DIR}/settings.json"
     "${CLAUDE_DIR}/.gate_pass"

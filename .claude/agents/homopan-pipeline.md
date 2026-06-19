@@ -55,6 +55,21 @@ HOMOPAN_RUN_NS="$AGENT_NAME" bash scripts/run_all_test.sh
 Without `HOMOPAN_RUN_NS`, state stays at the project root (legacy single-agent
 layout). Two agents with NO namespace serialize on one shared `pipeline.lock`.
 
+## Attribution in the audit log
+
+The PostToolUse logger (`logs/bitacora.jsonl` + external audit log) tags every
+mutating tool call with `session` and `cwd`, taken from the hook payload — so
+each Claude Code session is automatically distinguishable (each agent = its own
+`session_id`). No setup needed for `session`/`cwd`.
+
+For human-readable labels, launch the agent with env vars (Claude Code passes
+its environment to hooks):
+```bash
+HOMOPAN_AGENT=alignment-bot HOMOPAN_RUN_NS=alignment-bot claude ...
+```
+Then log lines carry `"agent":"alignment-bot"` too. `agent`/`run_id` show
+`"unknown"` only when those vars are unset; `session`/`cwd` populate regardless.
+
 ## Error Handling
 
 If any step fails:
