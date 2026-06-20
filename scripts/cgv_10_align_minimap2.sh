@@ -32,14 +32,7 @@ log_info "minimap2 produced $(wc -l < "${PAF}") PAF records"
 # identity = (1 - de)*100 from the de:f gap-compressed-divergence tag.
 {
   printf '#aligner\thuman_chr\th_start\th_end\tbonobo_chr\tb_start\tb_end\tstrand\tidentity_pct\n'
-  awk -F'\t' -v ho="${CGV_H_OFFSET:-0}" -v bo="${CGV_B_OFFSET:-0}" '{
-    qn=$1; qs=$3; qe=$4; st=$5; tn=$6; ts=$8; te=$9; nm=$10; bl=$11;
-    de="";
-    for(i=12;i<=NF;i++){ if($i ~ /^de:f:/){ de=substr($i,6) } }
-    if(de!="") id=(1-de)*100; else id=(bl>0 ? nm/bl*100 : 0);
-    # shift box-local coords back to chromosome space
-    printf "minimap2\t%s\t%d\t%d\t%s\t%d\t%d\t%s\t%.4f\n", tn, ts+ho, te+ho, qn, qs+bo, qe+bo, st, id;
-  }' "${PAF}"
+  cgv_norm_paf minimap2 "${PAF}" "${CGV_H_OFFSET:-0}" "${CGV_B_OFFSET:-0}"
 } > "${OUT}.tmp"
 mv -f "${OUT}.tmp" "${OUT}"
 

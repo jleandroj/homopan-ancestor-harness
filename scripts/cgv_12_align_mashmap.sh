@@ -36,20 +36,7 @@ log_info "MashMap produced $(grep -vc '^#' "${RAW}" 2>/dev/null || wc -l < "${RA
 # identity from the id:f: tag (a percentage), fallback dv:f / col10:col11.
 {
   printf '#aligner\thuman_chr\th_start\th_end\tbonobo_chr\tb_start\tb_end\tstrand\tidentity_pct\n'
-  awk -F'\t' -v ho="${CGV_H_OFFSET:-0}" -v bo="${CGV_B_OFFSET:-0}" '
-    /^#/ { next }
-    NF>=11 {
-      qn=$1; qs=$3; qe=$4; st=$5; tn=$6; ts=$8; te=$9; nm=$10; bl=$11;
-      id="";
-      for(i=12;i<=NF;i++){
-        # MashMap reports id:f: as a FRACTION (0..1) -> scale to percent.
-        if($i ~ /^id:f:/) id=substr($i,6)*100;
-        else if($i ~ /^dv:f:/ && id=="") id=(1-substr($i,6))*100;
-      }
-      if(id=="") id=(bl>0 ? nm/bl*100 : 0);
-      printf "mashmap\t%s\t%d\t%d\t%s\t%d\t%d\t%s\t%.4f\n", tn, ts+ho, te+ho, qn, qs+bo, qe+bo, st, id;
-    }
-  ' "${RAW}"
+  cgv_norm_paf mashmap "${RAW}" "${CGV_H_OFFSET:-0}" "${CGV_B_OFFSET:-0}"
 } > "${OUT}.tmp"
 mv -f "${OUT}.tmp" "${OUT}"
 

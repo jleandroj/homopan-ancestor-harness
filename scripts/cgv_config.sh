@@ -213,6 +213,9 @@ cgv_require_tool() { cgv_have "$1" || die "Required tool not found on PATH: $1 (
 
 compute_sha256() { sha256sum "$1" | cut -d' ' -f1; }
 
+# Aligner-output normalization (single source of truth; unit-tested in isolation).
+source "${CGV_SCRIPTS_DIR}/cgv_normalize.sh"
+
 # Read a field from region.tsv (key in col1 -> value in col2); echo default if absent.
 cgv_region_get() {   # <key> [default]
   local k="$1" d="${2:-0}" v

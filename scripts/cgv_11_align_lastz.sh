@@ -59,14 +59,7 @@ log_info "LASTZ produced $(grep -vc '^#' "${RAW}") raw records"
 # name1/zstart1/end1 = human (0-based half-open) ; name2/zstart2+/end2+ = bonobo.
 {
   printf '#aligner\thuman_chr\th_start\th_end\tbonobo_chr\tb_start\tb_end\tstrand\tidentity_pct\n'
-  awk -F'\t' -v ho="${CGV_H_OFFSET:-0}" -v bo="${CGV_B_OFFSET:-0}" '
-    /^#/ { next }
-    {
-      hchr=$1; hs=$2; he=$3; bchr=$4; st=$5; bs=$6; be=$7; id=$8;
-      gsub(/%/,"",id);
-      printf "lastz\t%s\t%d\t%d\t%s\t%d\t%d\t%s\t%s\n", hchr, hs+ho, he+ho, bchr, bs+bo, be+bo, st, id;
-    }
-  ' "${RAW}"
+  cgv_norm_lastz "${RAW}" "${CGV_H_OFFSET:-0}" "${CGV_B_OFFSET:-0}"
 } > "${OUT}.tmp"
 mv -f "${OUT}.tmp" "${OUT}"
 
