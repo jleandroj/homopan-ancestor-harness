@@ -45,6 +45,9 @@ else
     fi
   done
 fi
+# P2.2: jq is hard-required; skip logging (fail-open) if absent rather than
+# parsing JSON with fragile grep/sed. The gate already fail-closes without jq.
+[[ -n "${JQ_BIN}" ]] || exit 0
 
 # ── Parse hook input ─────────────────────────────────────────────────────
 INPUT=$(cat)
@@ -126,9 +129,12 @@ else
   esac
 fi
 
-# ── Only log MUTATING tools (P3); skip Read/Glob/Grep/etc. ────────────────
+# ── Log MUTATING tools; Read only when HOMOPAN_LOG_READS=1 (avoid noise) ──
+# Clinical-data access is denied+recorded by the gate (P1.2); general read
+# auditing is opt-in here so the bitacora is not flooded with every file read.
 case "${TOOL}" in
   Write|Edit|NotebookEdit|Bash) : ;;
+  Read) [[ "${HOMOPAN_LOG_READS:-0}" == "1" ]] || exit 0 ;;
   *) exit 0 ;;
 esac
 
@@ -151,7 +157,7 @@ fi
 
 # ── File hash for Write/Edit (audit trail of what changed) ─────────────────
 FILE_HASH=""
-if [[ "${TOOL}" == "Write" || "${TOOL}" == "Edit" ]]; then
+if [[ "${TOOL}" == "Write" || "${TOOL}" == "Edit" || "${TOOL}" == "Read" ]]; then
   if [[ -n "${DETAIL}" ]] && [[ -f "${DETAIL}" ]]; then
     FILE_HASH=$(sha256sum "${DETAIL}" 2>/dev/null | cut -d' ' -f1 || true)
   fi
