@@ -46,6 +46,19 @@ grep -q 'DENY_CLINICAL' "${TMP}/.claude/gate_check.sh" \
 bash -n "${TMP}/.claude/gate_check.sh"   && ok "gate_check.sh valid bash"   || no "gate_check.sh syntax error"
 bash -n "${TMP}/.claude/bitacora_log.sh" && ok "bitacora_log.sh valid bash" || no "bitacora_log.sh syntax error"
 
+# P2.2: jq hard-required guard present + runtime logging still produces valid JSONL
+grep -q 'jq is hard-required' "${TMP}/.claude/bitacora_log.sh" \
+  && ok "bitacora has jq-hard-required guard (P2.2)" || no "P2.2 jq-hard guard missing"
+if command -v jq >/dev/null 2>&1; then
+  echo '{"tool_name":"Bash","tool_input":{"command":"echo hi"},"session_id":"s1","cwd":"/x","tool_response":{}}' \
+    | HOMOPAN_AUDIT_LOG="${TMP}/audit.jsonl" bash "${TMP}/.claude/bitacora_log.sh" >/dev/null 2>&1
+  ln="$(tail -1 "${TMP}/logs/bitacora.jsonl" 2>/dev/null)"
+  echo "${ln}" | jq -e '.tool=="Bash" and .detail=="echo hi"' >/dev/null 2>&1 \
+    && ok "patched bitacora logs valid JSONL at runtime" || no "bitacora runtime broken: ${ln}"
+else
+  echo "  [SKIP] runtime JSONL check (no host jq)"
+fi
+
 echo ""
 echo "  Results: ${pass} passed, ${fail} failed"
 (( fail == 0 )) && { echo "ALL TESTS PASSED"; exit 0; } || { echo "TESTS FAILED"; exit 1; }

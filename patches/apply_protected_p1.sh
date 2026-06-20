@@ -70,6 +70,21 @@ fi''',
     FILE_HASH=$(sha256sum "${DETAIL}" 2>/dev/null | cut -d' ' -f1 || true)
   fi
 fi''', 1),
+ # P2.2: jq is HARD-REQUIRED -- skip logging (fail-open) if absent instead of
+ # parsing JSON with fragile grep/sed. Anchor avoids box-drawing chars.
+ ('''      JQ_BIN="${candidate}"
+      break
+    fi
+  done
+fi''',
+  '''      JQ_BIN="${candidate}"
+      break
+    fi
+  done
+fi
+# P2.2: jq is hard-required; skip logging (fail-open) if absent rather than
+# parsing JSON with fragile grep/sed. The gate already fail-closes without jq.
+[[ -n "${JQ_BIN}" ]] || exit 0''', 1),
 ])
 
 # ── P1.2: gate_check.sh -- realpath clinical-data deny for all file tools ──
