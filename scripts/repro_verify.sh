@@ -128,7 +128,7 @@ seq_identity() {   # <faA> <faB>
   [[ -z "${paf}" ]] && { echo "0 0"; return 0; }
   printf '%s\n' "${paf}" | awk '
     { nm+=$10; bl+=$11; if($2>qlen)qlen=$2; aq+=($4-$3) }
-    END{ id=(bl>0)?nm/bl:0; cov=(qlen>0)?aq/qlen:0; printf "%.6f %.6f", id, cov }'
+    END{ id=(bl>0)?nm/bl:0; cov=(qlen>0)?aq/qlen:0; printf "%.6f %.6f\n", id, cov }'
 }
 
 # ── Run twice ──────────────────────────────────────────────────────────────
@@ -155,7 +155,9 @@ for rel in "${REL_HAL}" "${REL_ANC}"; do
     # coverage clear the threshold -- high identity over a tiny aligned fraction
     # is NOT equivalence.
     if [[ "${rel}" == "${REL_ANC}" && -f "${fa}" && -f "${fb}" ]]; then
-      read -r id cov < <(seq_identity "${fa}" "${fb}")
+      metric="$(seq_identity "${fa}" "${fb}" 2>/dev/null)"
+      id="${metric%% *}"; cov="${metric##* }"
+      [[ -n "${id}" ]] || id="NA"; [[ -n "${cov}" ]] || cov="NA"
       if [[ "${id}" == "NA" ]]; then
         log_warn "  -> equivalence metric unavailable (no minimap2/container); reporting bytes only"
       else
