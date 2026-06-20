@@ -28,17 +28,19 @@ else
   no "apply_protected_p1.sh failed on the copy"
 fi
 
-# P1.1: bitacora now logs Read
-grep -qE 'Write\|Edit\|NotebookEdit\|Bash\|Read' "${TMP}/.claude/bitacora_log.sh" \
-  && ok "bitacora_log.sh logs Read" || no "Read not added to bitacora log case"
+# P1.1: bitacora logs Read only when opt-in (no noise by default)
+grep -q 'HOMOPAN_LOG_READS' "${TMP}/.claude/bitacora_log.sh" \
+  && ok "bitacora_log.sh Read logging is opt-in (HOMOPAN_LOG_READS)" || no "opt-in Read logging missing"
 grep -qE '"Edit" \|\| .* == "Read"' "${TMP}/.claude/bitacora_log.sh" \
-  && ok "bitacora_log.sh hashes Read files" || no "Read not added to hash case"
+  && ok "bitacora_log.sh hashes Read files when logged" || no "Read not added to hash case"
 
-# P1.2: gate has the realpath clinical gate covering file tools
+# P1.2: gate has the realpath clinical gate + records denied attempts
 grep -q 'realpath gate' "${TMP}/.claude/gate_check.sh" \
   && ok "gate_check.sh has realpath clinical-data deny" || no "clinical realpath block missing"
 grep -qE 'Read\|Edit\|Write\|NotebookEdit' "${TMP}/.claude/gate_check.sh" \
   && ok "clinical deny covers Read/Edit/Write/NotebookEdit" || no "file-tool coverage missing"
+grep -q 'DENY_CLINICAL' "${TMP}/.claude/gate_check.sh" \
+  && ok "clinical deny is recorded to the audit log" || no "denied clinical attempt not audited"
 
 # results are valid bash
 bash -n "${TMP}/.claude/gate_check.sh"   && ok "gate_check.sh valid bash"   || no "gate_check.sh syntax error"

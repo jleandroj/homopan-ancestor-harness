@@ -52,9 +52,12 @@ case "${TOOL}" in
   Write|Edit|NotebookEdit|Bash) : ;;
   *) exit 0 ;;
 esac''',
-  '''# ── Log MUTATING tools + Read (P1: audit clinical/sensitive reads) ────────
+  '''# ── Log MUTATING tools; Read only when HOMOPAN_LOG_READS=1 (avoid noise) ──
+# Clinical-data access is denied+recorded by the gate (P1.2); general read
+# auditing is opt-in here so the bitacora is not flooded with every file read.
 case "${TOOL}" in
-  Write|Edit|NotebookEdit|Bash|Read) : ;;
+  Write|Edit|NotebookEdit|Bash) : ;;
+  Read) [[ "${HOMOPAN_LOG_READS:-0}" == "1" ]] || exit 0 ;;
   *) exit 0 ;;
 esac''', 1),
  ('''if [[ "${TOOL}" == "Write" || "${TOOL}" == "Edit" ]]; then
@@ -84,6 +87,9 @@ case "${TOOL}" in
       _abs=$(realpath -m "${_fp}" 2>/dev/null || echo "${_fp}")
       _clin=$(realpath -m "${PROJECT_ROOT}/CLINDIR" 2>/dev/null || echo "${PROJECT_ROOT}/CLINDIR")
       if [[ "${_abs}" == "${_clin}" || "${_abs}" == "${_clin}/"* ]]; then
+        _al="${HOMOPAN_AUDIT_LOG:-${HOME}/.homopan_audit.jsonl}"
+        printf '{"timestamp":"%s","event":"DENY_CLINICAL","tool":"%s","path":"%s"}\n' \
+          "$(date -Iseconds 2>/dev/null)" "${TOOL}" "${_abs//\\"/\\\\\\"}" >> "${_al}" 2>/dev/null || true
         echo "DENY: ${TOOL} on clinical/human-subject data is off-limits (realpath gate)." >&2
         exit 2
       fi
