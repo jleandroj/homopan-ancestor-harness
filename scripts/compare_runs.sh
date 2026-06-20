@@ -29,6 +29,18 @@ MA="${MANI_DIR}/${A}.json"; MB="${MANI_DIR}/${B}.json"
 [[ -f "${MA}" ]] || die "manifest not found: $(sanitize_path "${MA}")"
 [[ -f "${MB}" ]] || die "manifest not found: $(sanitize_path "${MB}")"
 
+# P3.2: validate the manifest schema before trusting the verdict. The repro_sha256
+# is only comparable across the SAME schema; a silent schema bump would otherwise
+# read as a spurious divergence. Mismatched/unknown schema -> fail-closed.
+SA="$("${JQ}" -r '.schema // "none"' < "${MA}")"
+SB="$("${JQ}" -r '.schema // "none"' < "${MB}")"
+if [[ "${SA}" == "none" || "${SB}" == "none" ]]; then
+  die "manifest missing .schema (A=${SA}, B=${SB}); cannot compare reliably."
+fi
+if [[ "${SA}" != "${SB}" ]]; then
+  die "manifest schema mismatch (A=schema ${SA}, B=schema ${SB}); repro_sha256 is not comparable across schemas."
+fi
+
 # Flatten the DETERMINISTIC repro{} block (NOT meta) to sorted "path=value"
 # leaf lines: meta (run_id, timestamp, host, llm) is expected to differ between
 # any two runs and must not mask the verdict. Read via STDIN (snap-jq safe).
