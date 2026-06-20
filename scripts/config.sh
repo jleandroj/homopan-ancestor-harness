@@ -831,6 +831,14 @@ write_run_manifest() {
     llm_agent="${AI_AGENT:-${HOMOPAN_AGENT:-${CLAUDE_AGENT:-unknown}}}"
     llm_effort="${CLAUDE_EFFORT:-unknown}"
     llm_model="${HOMOPAN_MODEL_ID:-unexposed}"   # exact model id is NOT exposed to the shell
+    # Harness code + prompt provenance (P1.3): exact commit, dirty flag, and
+    # content hashes of the skills/agents trees so a run records the code AND
+    # prompts that produced it (replay needs more than the toolchain lock).
+    harness_commit=$(git -C "${PROJECT_ROOT}" rev-parse HEAD 2>/dev/null || echo unknown)
+    harness_dirty=$([[ -n "$(git -C "${PROJECT_ROOT}" status --porcelain 2>/dev/null)" ]] && echo true || echo false)
+    _treehash() { [[ -d "$1" ]] && { find "$1" -type f -print0 | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1; } || echo none; }
+    skills_sha=$(_treehash "${PROJECT_ROOT}/.claude/skills")
+    agents_sha=$(_treehash "${PROJECT_ROOT}/.claude/agents")
 
     JQ=""
     if command -v jq &>/dev/null; then JQ=jq; else
@@ -871,7 +879,10 @@ write_run_manifest() {
       --arg host "$(hostname)" --arg app "${apptainer_v}" \
       --arg sess "${llm_session}" --arg ag "${llm_agent}" --arg eff "${llm_effort}" --arg mdl "${llm_model}" \
       --arg sb "${sandboxed_eff}" \
+      --arg gitc "${harness_commit}" --arg gitd "${harness_dirty}" \
+      --arg skh "${skills_sha}" --arg agh "${agents_sha}" \
       '{run_id:$run_id, timestamp:$ts, namespace:$ns, host:$host, apptainer:$app, sandboxed:$sb,
+        code:{harness_commit:$gitc, harness_dirty:($gitd=="true"), skills_sha256:$skh, agents_sha256:$agh},
         llm:{session_id:$sess, agent:$ag, effort:$eff, model_id:$mdl,
              note:"LLM reasoning is non-deterministic and not repo-controllable; auditable only."}}')
 
