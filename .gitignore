@@ -47,3 +47,8 @@ il10_analisis/
 *~
 .vscode/
 .idea/
+
+# ── CGV replication sub-harness data (regenerable) ───────────────────────
+cgv_genomes/
+cgv_truth/
+results/cgv/
