@@ -21,8 +21,9 @@ SPECIES=(homo_sapiens pan_paniscus pan_troglodytes gorilla_gorilla_gorilla pongo
 
 # ── Build a throwaway project with copies of the scripts + tiny genomes ────
 TMP="$(mktemp -d)"; trap 'rm -rf "${TMP}"' EXIT
-mkdir -p "${TMP}/scripts" "${TMP}/genomes" "${TMP}/targets"
+mkdir -p "${TMP}/scripts" "${TMP}/scripts/lib" "${TMP}/genomes" "${TMP}/targets"
 cp "${SRC_ROOT}/scripts/config.sh" "${TMP}/scripts/"
+cp "${SRC_ROOT}/scripts/lib/"*.sh "${TMP}/scripts/lib/"
 for s in 01_validate_fastas 02_make_test_fastas 03_make_seqfiles; do
   cp "${SRC_ROOT}/scripts/${s}.sh" "${TMP}/scripts/"
 done

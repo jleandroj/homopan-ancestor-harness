@@ -98,43 +98,9 @@ DISK_WARN_GB=200
 DISK_FULL_MIN_GB=400
 TEST_REGION_LEN=1000000   # 1 Mb
 
-# ── Colors ────────────────────────────────────────────────────────────────
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-BOLD='\033[1m'
-NC='\033[0m'
-
-# ── Logging ───────────────────────────────────────────────────────────────
-# Every line carries the run id (and agent/session when the env provides them)
-# so interleaved output from concurrent or resumed runs is attributable (#10).
-_ts() { date '+%Y-%m-%d %H:%M:%S'; }
-_AGENT_TAG="${HOMOPAN_AGENT:-${CLAUDE_AGENT:-}}"
-_SESSION_TAG="${HOMOPAN_SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
-_logtag() {
-  printf '%s' "${RUN_ID}"
-  [[ -n "${_AGENT_TAG}" ]]   && printf '/%s' "${_AGENT_TAG}"
-  [[ -n "${_SESSION_TAG}" ]] && printf '/%s' "${_SESSION_TAG}"
-}
-
-# Logs go to STDERR, never stdout: several helpers (run_in_container, the
-# sandbox/seed probes) run inside command substitution or `cmd > file`, so a
-# log line on stdout would contaminate the captured data (e.g. a hal2fasta
-# FASTA or a halStats value). stderr is still captured by the steps' `2>&1|tee`.
-log_info()  { echo -e "${BLUE}[$(_ts)]${NC}[$(_logtag)] ${BOLD}INFO${NC}  $*" >&2; }
-log_ok()    { echo -e "${GREEN}[$(_ts)]${NC}[$(_logtag)] ${GREEN}OK${NC}    $*" >&2; }
-log_warn()  { echo -e "${YELLOW}[$(_ts)]${NC}[$(_logtag)] ${YELLOW}WARN${NC}  $*" >&2; }
-log_error() { echo -e "${RED}[$(_ts)]${NC}[$(_logtag)] ${RED}ERROR${NC} $*" >&2; }
-log_step()  { echo -e "${BLUE}[$(_ts)]${NC}[$(_logtag)] ${BOLD}STEP${NC}  $*" >&2; }
-
-die() { log_error "$@"; exit 1; }
-
-# ── Sanitize paths for logging (redact $HOME) ────────────────────────────
-sanitize_path() {
-  local p="$1"
-  echo "${p//${HOME}/\~}"
-}
+# ── Logging / colors / sanitize (P2.1: extracted to lib/log.sh) ───────────
+# Sourced BASH_SOURCE-relative so it resolves in copied-temp test trees too.
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/log.sh"
 
 # ── Portable file mtime (avoids GNU-only stat -c %Y) ─────────────────────
 file_mtime_epoch() {
