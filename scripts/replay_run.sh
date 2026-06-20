@@ -75,18 +75,28 @@ if ! HOMOPAN_RUN_NS="${NS}" CACTUS_SEED="${SEED}" bash "${SRC_ROOT}/scripts/run_
   die "Replay pipeline failed in namespace '${NS}'."
 fi
 
-# ── Confirm reproduction ────────────────────────────────────────────────────
+# ── Confirm reproduction (fail-closed: divergence is a non-zero exit) ───────
+# By default a byte-divergent replay EXITS NON-ZERO so callers/CI can trust the
+# verdict. Because the container's Cactus is known non-deterministic (see
+# REPRODUCIBILITY.md), set HOMOPAN_REPLAY_ALLOW_DIVERGENCE=1 to downgrade
+# divergence to a warning (exit 0) and acknowledge it as expected.
+rc=0
 NEW_HAL="${SRC_ROOT}/runs/${NS}/results/test/primates.test.hal"
 if [[ -n "${HAL_REC}" && -f "${NEW_HAL}" ]]; then
   NEW_SHA=$(compute_sha256 "${NEW_HAL}")
   if [[ "${NEW_SHA}" == "${HAL_REC}" ]]; then
     log_ok "REPLAY REPRODUCED: test HAL sha256 matches the manifest (${NEW_SHA:0:16}...)."
+  elif [[ "${HOMOPAN_REPLAY_ALLOW_DIVERGENCE:-0}" == "1" ]]; then
+    log_warn "Replay test HAL DIVERGES (recorded=${HAL_REC:0:16}... new=${NEW_SHA:0:16}...); accepted (HOMOPAN_REPLAY_ALLOW_DIVERGENCE=1)."
+    log_warn "Expected: Cactus is non-deterministic. Use repro_verify.sh for the equivalence metric."
   else
-    log_warn "Replay test HAL sha256 DIFFERS from manifest (recorded=${HAL_REC:0:16}... new=${NEW_SHA:0:16}...)."
-    log_warn "Run 'bash scripts/repro_verify.sh' to classify (non-determinism vs input change)."
+    log_error "REPLAY DID NOT REPRODUCE: test HAL sha256 DIFFERS (recorded=${HAL_REC:0:16}... new=${NEW_SHA:0:16}...)."
+    log_error "Set HOMOPAN_REPLAY_ALLOW_DIVERGENCE=1 to accept (Cactus is non-deterministic), or run repro_verify.sh to classify."
+    rc=2
   fi
 else
   log_warn "No recorded test_hal_sha256 to compare (original may have been a full-only run)."
 fi
 log_info "Replay namespace kept at $(sanitize_path "${SRC_ROOT}/runs/${NS}") for inspection."
 echo "Caveat: ancestors are inferred; the 1 Mb test path is technical, not biological."
+exit "${rc}"
