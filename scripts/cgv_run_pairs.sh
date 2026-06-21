@@ -33,6 +33,14 @@ reg troglodytes "Pan troglodytes"     GCF_028858775.2 "${G}/pan_troglodytes.fa" 
 reg gorilla     "Gorilla gorilla"     GCF_029281585.2 "${G}/gorilla_gorilla_gorilla.fa"   "${NT}/gorilla_chr_names.tsv"
 reg pongo       "Pongo abelii"        GCF_028885655.2 "${G}/pongo_abelii.fa"              "${NT}/pongo_chr_names.tsv"
 reg nomascus    "Nomascus leucogenys" ""              "${CG}/nomascus.fa"                 "${NT}/nomascus_chr_names.tsv"
+# ── catarrhine continuation (accession resolved by taxon; genome downloaded) ─
+reg pongo_pyg     "Pongo pygmaeus"          "" "${CG}/pongo_pyg.fa"     "${NT}/pongo_pyg_chr_names.tsv"
+reg symphalangus  "Symphalangus syndactylus" "" "${CG}/symphalangus.fa" "${NT}/symphalangus_chr_names.tsv"
+reg mfascicularis "Macaca fascicularis"     "" "${CG}/mfascicularis.fa" "${NT}/mfascicularis_chr_names.tsv"
+reg papio         "Papio anubis"            "" "${CG}/papio.fa"         "${NT}/papio_chr_names.tsv"
+reg mmulatta      "Macaca mulatta"          "" "${CG}/mmulatta.fa"      "${NT}/mmulatta_chr_names.tsv"
+reg rhinopithecus "Rhinopithecus roxellana" "" "${CG}/rhinopithecus.fa" "${NT}/rhinopithecus_chr_names.tsv"
+reg callithrix    "Callithrix jacchus"      "" "${CG}/callithrix.fa"    "${NT}/callithrix_chr_names.tsv"
 
 fetch_names(){ # <accession> <out>
   [ -s "$2" ] && return 0
