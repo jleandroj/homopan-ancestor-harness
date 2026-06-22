@@ -62,6 +62,21 @@ F="${TMP}/F"; mkdir -p "$F"
 bash "${CO}" "$F" >/dev/null 2>&1
 [[ "$(fstat "$F")" == "UNKNOWN" ]] && ok "empty context -> UNKNOWN (not PASS)" || no "expected UNKNOWN got $(fstat "$F")"
 
+# ── Scenario G: assemble_and_verify wires a run's artifacts -> decision+report
+G="${TMP}/G_run"; mkdir -p "${G}" "${TMP}/Gres/ancestors" "${TMP}/Ggen"
+printf '%s\n' '{"run_id":"g","type":"action_end","exit":"0","duration_ms":"5","out_bytes":"3","err_bytes":"0"}' > "${G}/audit.jsonl"
+printf '>chr\nACGTACGTACGTACGT\n' > "${TMP}/Ggen/homo_sapiens.fa"
+printf '>Anc\nACGTACGTACGT\n' > "${TMP}/Gres/ancestors/Anc.fa"
+printf '{"determinism":{"reproducible":false}}\n' > "${TMP}/Gres/ancestors/Anc.fa.provenance.json"
+gv="$( bash "${ROOT}/scripts/verify_agents/assemble_and_verify.sh" "${G}" "${TMP}/Gres" "${TMP}/Ggen" 2>/dev/null | tail -1 )"
+if [[ -f "${G}/verify/decision.json" && -f "${G}/verify/REPORT.md" ]]; then
+  ok "assemble_and_verify builds context -> decision.json + REPORT.md (verdict ${gv})"
+  jq -e '.verdicts[]|select(.agent=="ProvenanceAgent")' < "${G}/verify/decision.json" >/dev/null 2>&1 \
+    && ok "real audit.jsonl feeds the ProvenanceAgent" || no "provenance not wired"
+else
+  no "assemble_and_verify produced no decision/report (verdict=${gv})"
+fi
+
 echo ""
 echo "  Results: ${pass} passed, ${fail} failed"
 (( fail == 0 )) && { echo "ALL TESTS PASSED"; exit 0; } || { echo "TESTS FAILED"; exit 1; }

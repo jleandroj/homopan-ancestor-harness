@@ -29,5 +29,21 @@ export HARNESS_TIMEOUT="${HARNESS_TIMEOUT:-172800}"   # 48h hard ceiling for the
 export HARNESS_RETRIES="${HARNESS_RETRIES:-0}"        # the pipeline has per-step retries already
 export HOMOPAN_REQUIRE_HARNESS=1                      # let the orchestrator know it is supervised
 
-echo "[run_supervised] launching '${mode}' pipeline under the harness supervisor..." >&2
-exec bash "${ROOT}/scripts/harness/harness.sh" run -- bash "${ROOT}/scripts/${target}" "$@"
+# Fix the run id so we know the run dir, then verify the run after it finishes.
+export HARNESS_RUN_ID="${HARNESS_RUN_ID:-$(bash "${ROOT}/scripts/harness/harness.sh" id)}"
+export HARNESS_BASE="${HARNESS_BASE:-${ROOT}/runs/_harness}"
+run_dir="${HARNESS_BASE}/${HARNESS_RUN_ID}"
+
+echo "[run_supervised] launching '${mode}' pipeline under the harness supervisor (run ${HARNESS_RUN_ID})..." >&2
+bash "${ROOT}/scripts/harness/harness.sh" run -- bash "${ROOT}/scripts/${target}" "$@"
+pipe_rc=$?
+
+echo "[run_supervised] pipeline exit=${pipe_rc}; running the verification (evidence) layer..." >&2
+verdict="$(bash "${ROOT}/scripts/verify_agents/assemble_and_verify.sh" "${run_dir}" 2>/dev/null | tail -1)"
+echo "[run_supervised] DONE  pipeline_exit=${pipe_rc}  verification=${verdict:-UNKNOWN}" >&2
+echo "[run_supervised] report: ${run_dir}/verify/REPORT.md" >&2
+
+# Exit non-zero if the pipeline failed OR the evidence layer returned a hard FAIL
+# (a technically-successful but unverified run must not look like success).
+case "${verdict}" in FAIL_*) vfail=1 ;; *) vfail=0 ;; esac
+(( pipe_rc != 0 || vfail != 0 )) && exit 1 || exit 0
