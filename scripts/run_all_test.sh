@@ -4,6 +4,12 @@
 set -euo pipefail
 source "$(dirname "$0")/config.sh"
 
+# Opt-in production policy: refuse to run outside the harness supervisor.
+# Default off (tests/CI invoke directly); run_supervised.sh sets it + supervises.
+if [[ "${HOMOPAN_REQUIRE_HARNESS:-0}" == "1" && -z "${HARNESS_RUN_ID:-}" ]]; then
+  die "HOMOPAN_REQUIRE_HARNESS=1: run via 'bash scripts/run_supervised.sh test' (supervised)."
+fi
+
 script_banner "HomoPan Test Pipeline (Orchestrator)"
 
 # ── Pipeline lock (prevents concurrent orchestrator runs) ────────────────

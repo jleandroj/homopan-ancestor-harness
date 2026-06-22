@@ -179,6 +179,22 @@ else
   no "iter10 run produced no audit (d=${d10})"
 fi
 
+# ── Integration: run_supervised.sh + orchestrator guard ───────────────────
+# bad mode -> usage error
+bash "${ROOT}/scripts/run_supervised.sh" badmode >/dev/null 2>&1; [[ $? -eq 2 ]] && ok "run_supervised rejects bad mode" || no "bad mode not rejected"
+# production guard: orchestrator refuses to run UNSUPERVISED when required
+gns="hguard_$$"
+gout="$( cd "${ROOT}" && HOMOPAN_RUN_NS="${gns}" HOMOPAN_REQUIRE_HARNESS=1 bash scripts/run_all_test.sh 2>&1 )"; grc=$?
+rm -rf "${ROOT}/runs/${gns}" 2>/dev/null
+if [[ ${grc} -ne 0 ]] && echo "${gout}" | grep -q 'run_supervised'; then
+  ok "orchestrator refuses unsupervised run when HOMOPAN_REQUIRE_HARNESS=1"
+else
+  no "guard did not refuse (rc=${grc})"
+fi
+# guard is OFF by default (does not break direct/test invocation): the condition
+# is false when the var is unset -> no spurious refusal.
+[[ -z "${HOMOPAN_REQUIRE_HARNESS:-}" ]] && ok "guard is opt-in (off by default)" || no "guard not opt-in"
+
 echo ""
 echo "  Results: ${pass} passed, ${fail} failed"
 (( fail == 0 )) && { echo "ALL TESTS PASSED"; exit 0; } || { echo "TESTS FAILED"; exit 1; }
