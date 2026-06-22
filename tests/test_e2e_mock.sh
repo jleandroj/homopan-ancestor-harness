@@ -22,6 +22,7 @@ mkdir -p "${TMP}/scripts" "${TMP}/genomes" "${TMP}/test_genomes" "${TMP}/bin"
 
 # Copy the real scripts (config + all pipeline steps + orchestrator)
 cp "${SRC_ROOT}/scripts/"*.sh "${TMP}/scripts/"
+mkdir -p "${TMP}/scripts/lib"; cp "${SRC_ROOT}/scripts/lib/"*.sh "${TMP}/scripts/lib/" 2>/dev/null || true
 printf 'species\taccession\n' > "${TMP}/accessions.tsv"
 : > "${TMP}/cactus_v3.0.1.sif"   # dummy SIF (stub apptainer ignores contents)
 

@@ -150,6 +150,26 @@ if [[ "${TOOL}" == "Bash" ]]; then
   fi
 fi
 
+# ── Hardline deny: human-subject/clinical data (realpath, all file tools) ──
+# Resolve the target so absolute paths and symlinks cannot bypass the
+# settings.json globs; applies to Read/Edit/Write/NotebookEdit (not just Bash).
+case "${TOOL}" in
+  Read|Edit|Write|NotebookEdit)
+    _fp=$(echo "${INPUT}" | jq -r '.tool_input.file_path // empty' 2>/dev/null || true)
+    if [[ -n "${_fp}" ]]; then
+      _abs=$(realpath -m "${_fp}" 2>/dev/null || echo "${_fp}")
+      _clin=$(realpath -m "${PROJECT_ROOT}/il10_analisis" 2>/dev/null || echo "${PROJECT_ROOT}/il10_analisis")
+      if [[ "${_abs}" == "${_clin}" || "${_abs}" == "${_clin}/"* ]]; then
+        _al="${HOMOPAN_AUDIT_LOG:-${HOME}/.homopan_audit.jsonl}"
+        printf '{"timestamp":"%s","event":"DENY_CLINICAL","tool":"%s","path":"%s"}
+'           "$(date -Iseconds 2>/dev/null)" "${TOOL}" "${_abs//\"/\\\"}" >> "${_al}" 2>/dev/null || true
+        echo "DENY: ${TOOL} on clinical/human-subject data is off-limits (realpath gate)." >&2
+        exit 2
+      fi
+    fi
+    ;;
+esac
+
 # Network tools denied (no-egress policy; use scripts/sandbox_run.sh if needed)
 case "${TOOL}" in
   WebFetch|WebSearch)
