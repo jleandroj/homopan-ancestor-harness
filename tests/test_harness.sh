@@ -82,6 +82,25 @@ d4="$( bash "${H}" run -- some_evil_binary 2>&1 >/dev/null | sed -n 's/.*dir=\([
 # allowlist OFF lets it through (but is itself a logged choice)
 HARNESS_ALLOWLIST_OFF=1 bash "${H}" run -- bash -c 'exit 0' >/dev/null 2>&1 && ok "HARNESS_ALLOWLIST_OFF=1 bypasses (explicit)" || no "OFF override failed"
 
+# ── Iteration 5: timeout + kill-switch ─────────────────────────────────────
+# a command that exceeds the timeout is killed and logged as timeout
+d5="$( HARNESS_TIMEOUT=1 bash "${H}" run -- bash -c 'sleep 30' 2>&1 >/dev/null | sed -n 's/.*dir=\([^ ]*\) .*/\1/p' )"
+if [[ -n "${d5}" ]] && grep -q '"type":"timeout"' "${d5}/audit.jsonl" 2>/dev/null; then
+  ok "per-action timeout kills + logs timeout"
+else
+  no "timeout not enforced/logged (d=${d5})"
+fi
+# kill-switch: pre-set KILL via a fixed run id, then a run refuses to execute
+ksdir="${TMP}/_harness/ks_run"; mkdir -p "${ksdir}"; : > "${ksdir}/KILL"
+out5="$( HARNESS_RUN_ID=ks_run bash "${H}" run -- bash -c 'echo SHOULD_NOT_RUN' 2>&1 )"
+rc5=$?
+if [[ ${rc5} -eq 137 ]] && ! echo "${out5}" | grep -q SHOULD_NOT_RUN; then
+  ok "kill-switch blocks execution (exit 137)"
+else
+  no "kill-switch did not block (rc=${rc5})"
+fi
+grep -q '"type":"killed"' "${ksdir}/audit.jsonl" 2>/dev/null && ok "kill recorded in audit log" || no "kill not logged"
+
 echo ""
 echo "  Results: ${pass} passed, ${fail} failed"
 (( fail == 0 )) && { echo "ALL TESTS PASSED"; exit 0; } || { echo "TESTS FAILED"; exit 1; }

@@ -137,16 +137,33 @@ harness_exec() {
     echo "harness: DENIED '$(basename -- "$1")' -- not in allowlist." >&2
     return 126
   fi
+  # ── Iteration 5: kill-switch + per-action timeout ───────────────────────
+  # Kill-switch: a sentinel file (per-run or global) halts execution before any
+  # further action -- a human or watchdog can stop a runaway agent instantly.
+  local killf="${HARNESS_KILL_FILE:-${HARNESS_RUN_DIR}/KILL}"
+  if [[ -e "${killf}" ]]; then
+    harness_log "killed" cmd "$*" reason "kill-switch present" file "${killf}"
+    echo "harness: KILL-SWITCH active (${killf}); refusing to execute." >&2
+    return 137
+  fi
   local seq=$((HARNESS_SEQ+1))   # the action_start log will consume this seq
   local out="${HARNESS_RUN_DIR}/action_${seq}.out"
   local err="${HARNESS_RUN_DIR}/action_${seq}.err"
   local cmdstr="$*"
-  harness_log "action_start" cmd "${cmdstr}" stdout "$(basename "${out}")" stderr "$(basename "${err}")"
+  local tmo="${HARNESS_TIMEOUT:-0}"   # seconds; 0 = no timeout
+  harness_log "action_start" cmd "${cmdstr}" timeout_s "${tmo}" stdout "$(basename "${out}")" stderr "$(basename "${err}")"
   local t0 t1 rc dur
   t0="$(date +%s%3N 2>/dev/null || date +%s000)"
-  "$@" >"${out}" 2>"${err}"; rc=$?
+  if [[ "${tmo}" != "0" ]] && command -v timeout >/dev/null 2>&1; then
+    timeout --kill-after=10 "${tmo}" "$@" >"${out}" 2>"${err}"; rc=$?
+  else
+    "$@" >"${out}" 2>"${err}"; rc=$?
+  fi
   t1="$(date +%s%3N 2>/dev/null || date +%s000)"
   dur=$(( t1 - t0 ))
+  if [[ ${rc} -eq 124 ]]; then
+    harness_log "timeout" cmd "${cmdstr}" timeout_s "${tmo}" duration_ms "${dur}"
+  fi
   local osha esha
   osha="$(sha256sum "${out}" 2>/dev/null | cut -d' ' -f1)"; esha="$(sha256sum "${err}" 2>/dev/null | cut -d' ' -f1)"
   harness_log "action_end" cmd "${cmdstr}" exit "${rc}" duration_ms "${dur}" \
@@ -167,6 +184,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
           harness_log "end" exit "${rc}"
           echo "run_id=${HARNESS_RUN_ID} dir=${HARNESS_RUN_DIR} exit=${rc}" >&2
           exit "${rc}" ;;
-    *)    echo "usage: harness.sh {id|init|run -- <cmd...>}" >&2; exit 2 ;;
+    kill) shift; kf="${1:?usage: harness.sh kill <run_dir>}/KILL"; : > "${kf}" && echo "kill-switch set: ${kf}" ;;
+    *)    echo "usage: harness.sh {id|init|run -- <cmd...>|kill <run_dir>}" >&2; exit 2 ;;
   esac
 fi
