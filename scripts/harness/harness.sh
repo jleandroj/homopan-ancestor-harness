@@ -235,6 +235,51 @@ harness_on_signal() {   # trap handler: record, then exit non-zero (don't die si
   return 0
 }
 
+# ── Iteration 9: automatic report on completion OR failure ─────────────────
+# Aggregates the audit log into report.json (machine) + report.md (human),
+# surfacing every problem (errors, denials, timeouts, kills, interrupts) and a
+# top-line status. Generated from an EXIT trap so it exists even if the run
+# crashed or was interrupted.
+harness_report() {
+  [[ -n "${HARNESS_RUN_DIR:-}" && -d "${HARNESS_RUN_DIR}" ]] || return 0
+  local audit="${HARNESS_RUN_DIR}/audit.jsonl"
+  [[ -f "${audit}" ]] || return 0
+  local jq; jq="$(harness_jq)"
+  "${jq}" -s '
+    def cnt($t): ([.[]|select(.type==$t)]|length);
+    {
+      run_id: (.[0].run_id // "unknown"),
+      argv: ([.[]|select(.type=="start")|.argv][0] // ""),
+      actions: cnt("action_end"),
+      errors:  ([.[]|select(.type=="action_end" and .exit!="0")]|length),
+      denials: cnt("denied"), timeouts: cnt("timeout"), kills: cnt("killed"),
+      retries: cnt("retry"), interrupted: cnt("interrupted"),
+      total_duration_ms: ([.[]|select(.type=="action_end")|(.duration_ms|tonumber? // 0)]|add // 0)
+    }
+    | .problems = (.errors + .denials + .timeouts + .kills + .interrupted)
+    | .status = (if .problems>0 then "PROBLEMS" else "OK" end)
+  ' < "${audit}" > "${HARNESS_RUN_DIR}/report.json" 2>/dev/null || return 0
+  # human-readable
+  {
+    local r="${HARNESS_RUN_DIR}/report.json"
+    echo "# Harness run report"
+    echo
+    echo "- run_id: $("${jq}" -r '.run_id' < "${r}")"
+    echo "- status: **$("${jq}" -r '.status' < "${r}")**"
+    echo "- command: \`$("${jq}" -r '.argv' < "${r}")\`"
+    echo "- actions: $("${jq}" -r '.actions' < "${r}")  | total: $("${jq}" -r '.total_duration_ms' < "${r}") ms"
+    echo "- problems: errors=$("${jq}" -r '.errors' < "${r}") denials=$("${jq}" -r '.denials' < "${r}") timeouts=$("${jq}" -r '.timeouts' < "${r}") kills=$("${jq}" -r '.kills' < "${r}") interrupted=$("${jq}" -r '.interrupted' < "${r}") retries=$("${jq}" -r '.retries' < "${r}")"
+    echo
+    echo "## Failed / flagged actions"
+    "${jq}" -r 'select(.type=="action_end" and .exit!="0") | "- FAIL exit=\(.exit) dur=\(.duration_ms)ms cmd=\(.cmd)"' < "${audit}" 2>/dev/null
+    "${jq}" -r 'select(.type=="denied") | "- DENIED \(.reason): \(.cmd)"' < "${audit}" 2>/dev/null
+    "${jq}" -r 'select(.type=="timeout") | "- TIMEOUT (\(.timeout_s)s): \(.cmd)"' < "${audit}" 2>/dev/null
+    echo
+    echo "_Full audit: audit.jsonl · per-action stdout/stderr: action_*.out/.err_"
+  } > "${HARNESS_RUN_DIR}/report.md" 2>/dev/null || true
+  return 0
+}
+
 # CLI
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   case "${1:-}" in
@@ -244,6 +289,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
           HARNESS_INTERRUPTED=0
           trap 'harness_on_signal INT'  INT
           trap 'harness_on_signal TERM' TERM
+          trap 'harness_report' EXIT      # report on success, failure, OR crash
           harness_log "start" argv "$*"
           # The supervisor must survive the action's failure: run under a guard
           # so a non-zero/crash never aborts the harness (no set -e here anyway).

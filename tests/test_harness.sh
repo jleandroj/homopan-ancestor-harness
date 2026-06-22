@@ -152,6 +152,20 @@ d8c="$( HARNESS_RETRIES=3 bash "${H}" run -- forbidden_prog 2>&1 >/dev/null | se
 [[ -n "${d8c}" ]] && ! grep -q '"type":"retry"' "${d8c}/audit.jsonl" 2>/dev/null \
   && ok "policy denial is not retried" || no "denial was retried (d=${d8c})"
 
+# ── Iteration 9: automatic report ──────────────────────────────────────────
+d9="$( bash "${H}" run -- bash -c 'echo ok; exit 5' 2>&1 >/dev/null | sed -n 's/.*dir=\([^ ]*\) .*/\1/p' )"
+if [[ -n "${d9}" && -f "${d9}/report.json" && -f "${d9}/report.md" ]]; then
+  jq -e '.status=="PROBLEMS" and .errors==1 and .actions==1' < "${d9}/report.json" >/dev/null 2>&1 \
+    && ok "report.json summarizes status + problems" || no "report.json wrong: $(cat "${d9}/report.json")"
+  grep -q 'FAIL exit=5' "${d9}/report.md" && ok "report.md lists the failed action" || no "report.md missing failure"
+else
+  no "report not generated (d=${d9})"
+fi
+# clean run -> status OK
+d9b="$( bash "${H}" run -- bash -c 'exit 0' 2>&1 >/dev/null | sed -n 's/.*dir=\([^ ]*\) .*/\1/p' )"
+[[ -n "${d9b}" ]] && jq -e '.status=="OK" and .problems==0' < "${d9b}/report.json" >/dev/null 2>&1 \
+  && ok "clean run reports status OK" || no "clean run not OK (d=${d9b})"
+
 echo ""
 echo "  Results: ${pass} passed, ${fail} failed"
 (( fail == 0 )) && { echo "ALL TESTS PASSED"; exit 0; } || { echo "TESTS FAILED"; exit 1; }
