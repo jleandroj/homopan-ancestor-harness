@@ -1,0 +1,7 @@
+# Demo claims for the verification layer. Format: claim<TAB>evidence_type<TAB>evidence_ref
+# evidence_type: file | command | paper | db | result | none
+Human chr2 is a fusion of two ancestral ape chromosomes	paper	10.1126/science.1065463
+The CGV human-bonobo synteny was reproduced from raw DNA	result	results/cgv
+Gorilla chr3/chr5 carry the 19/4 homology blocks	file	agents/lib_verdict.sh
+This pipeline definitively proves the primate ancestor genome	none
+We report the first ever male Nomascus synteny ladder	none

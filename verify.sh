@@ -16,7 +16,7 @@ echo -e "${BOLD}========================================${NC}"
 
 # ── 1. Harness self-tests (no genomes/SIF required) ───────────────────────
 echo ""; echo -e "${BOLD}1. Self-tests${NC}"
-for t in tests/test_idempotency.sh tests/test_jobstore_guard.sh tests/test_concurrency.sh tests/test_egress.sh tests/test_sandbox.sh tests/test_e2e_synthetic.sh tests/test_e2e_mock.sh tests/test_gate.sh tests/test_gate_exitcode.sh tests/test_gate_sandbox.sh tests/test_cmd_detector_fuzz.sh tests/test_skill_contracts.sh tests/test_quality_gate.sh tests/test_toolchain_lock.sh tests/test_manifest.sh tests/test_compare_runs.sh tests/test_repro_verify.sh tests/test_repro_verify_envfix.sh tests/test_sandbox_failclosed.sh tests/test_patch_idempotency.sh tests/test_cgv_normalize.sh tests/test_cgv_paf_normalize.sh tests/test_cgv_box_filter.sh tests/test_harness_run.sh tests/test_enforcement.sh; do
+for t in tests/test_idempotency.sh tests/test_jobstore_guard.sh tests/test_concurrency.sh tests/test_egress.sh tests/test_sandbox.sh tests/test_e2e_synthetic.sh tests/test_e2e_mock.sh tests/test_gate.sh tests/test_gate_exitcode.sh tests/test_gate_sandbox.sh tests/test_cmd_detector_fuzz.sh tests/test_skill_contracts.sh tests/test_quality_gate.sh tests/test_toolchain_lock.sh tests/test_manifest.sh tests/test_compare_runs.sh tests/test_repro_verify.sh tests/test_repro_verify_envfix.sh tests/test_sandbox_failclosed.sh tests/test_patch_idempotency.sh tests/test_cgv_normalize.sh tests/test_cgv_paf_normalize.sh tests/test_cgv_box_filter.sh tests/test_harness_run.sh tests/test_enforcement.sh tests/test_verify_agents.sh; do
   if [[ -f "${t}" ]]; then
     if bash "${t}" >/tmp/verify_$$.log 2>&1; then
       echo -e "  ${GREEN}[PASS]${NC} ${t}"
