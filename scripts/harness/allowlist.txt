@@ -1,0 +1,19 @@
+# harness allowlist -- program BASENAMES the supervisor may execute.
+# Deny-by-default: anything not listed here is refused and logged. Curate it.
+# Override the path with HARNESS_ALLOWLIST_FILE, or inline with HARNESS_ALLOWLIST
+# ("a b c"). Disable enforcement only with HARNESS_ALLOWLIST_OFF=1 (logged).
+bash
+sh
+env
+timeout
+samtools
+apptainer
+jq
+python3
+python
+sha256sum
+halValidate
+halStats
+hal2fasta
+cactus
+minimap2

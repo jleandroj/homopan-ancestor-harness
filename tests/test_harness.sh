@@ -67,6 +67,21 @@ fi
 bash "${H}" run -- bash -c 'exit 0' >/dev/null 2>&1 && ok "harness run propagates exit 0" || no "exit 0 not propagated"
 bash "${H}" run -- bash -c 'exit 3' >/dev/null 2>&1; [[ $? -eq 3 ]] && ok "harness run propagates non-zero exit" || no "non-zero exit not propagated"
 
+# ── Iteration 4: deny-by-default allowlist ─────────────────────────────────
+# allowed program (bash) runs; denied program (a fake binary) is refused + logged.
+bash "${H}" run -- bash -c 'exit 0' >/dev/null 2>&1 && ok "allowlisted program runs" || no "allowlisted program blocked"
+dd="$( bash "${H}" run -- /usr/bin/nc -h 2>&1 >/dev/null | sed -n 's/.*dir=\([^ ]*\) .*/\1/p' )"
+rc_denied=$?
+out2="$( HARNESS_ALLOWLIST_OFF= bash "${H}" run -- definitely_not_allowed_prog 2>&1 >/dev/null )"
+rc2=$?
+[[ ${rc2} -eq 126 ]] && ok "non-allowlisted program denied (exit 126)" || no "denied program not 126 (got ${rc2})"
+echo "${out2}" | grep -q 'DENIED' && ok "denial surfaced to operator" || no "no DENIED message"
+# the denial is in the audit log
+d4="$( bash "${H}" run -- some_evil_binary 2>&1 >/dev/null | sed -n 's/.*dir=\([^ ]*\) .*/\1/p' )"
+[[ -n "${d4}" ]] && grep -q '"type":"denied"' "${d4}/audit.jsonl" 2>/dev/null && ok "denial recorded in audit log" || no "denial not in audit log (d=${d4})"
+# allowlist OFF lets it through (but is itself a logged choice)
+HARNESS_ALLOWLIST_OFF=1 bash "${H}" run -- bash -c 'exit 0' >/dev/null 2>&1 && ok "HARNESS_ALLOWLIST_OFF=1 bypasses (explicit)" || no "OFF override failed"
+
 echo ""
 echo "  Results: ${pass} passed, ${fail} failed"
 (( fail == 0 )) && { echo "ALL TESTS PASSED"; exit 0; } || { echo "TESTS FAILED"; exit 1; }

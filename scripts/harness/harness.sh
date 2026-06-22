@@ -112,9 +112,31 @@ harness_seal_audit() {
 # files, measures wall-clock duration, records start/end + exit code + output
 # hashes in the audit log, and returns the command's own exit code. Nothing the
 # agent does should bypass it; if it does, there is no audit trail for it.
+# ── Iteration 4: deny-by-default allowlist ─────────────────────────────────
+# The supervisor refuses to execute any program whose basename is not on the
+# allowlist, and logs the denial. Assume bad faith: an agent that asks to run
+# `nc`, `curl`, a miner, etc. is stopped here, not trusted.
+harness_allowed() {   # <program>
+  [[ "${HARNESS_ALLOWLIST_OFF:-0}" == "1" ]] && return 0
+  local prog; prog="$(basename -- "$1" 2>/dev/null)"
+  local list="${HARNESS_ALLOWLIST:-}"
+  if [[ -z "${list}" ]]; then
+    local f="${HARNESS_ALLOWLIST_FILE:-${HARNESS_DIR}/allowlist.txt}"
+    [[ -f "$f" ]] && list="$(grep -vE '^\s*#|^\s*$' "$f" 2>/dev/null | tr '\n' ' ')"
+  fi
+  local a
+  for a in ${list}; do [[ "${prog}" == "${a}" ]] && return 0; done
+  return 1
+}
+
 harness_exec() {
   [[ "${1:-}" == "--" ]] && shift
   (( $# >= 1 )) || { echo "harness_exec: no command" >&2; return 64; }
+  if ! harness_allowed "$1"; then
+    harness_log "denied" cmd "$*" reason "program not in allowlist" program "$(basename -- "$1")"
+    echo "harness: DENIED '$(basename -- "$1")' -- not in allowlist." >&2
+    return 126
+  fi
   local seq=$((HARNESS_SEQ+1))   # the action_start log will consume this seq
   local out="${HARNESS_RUN_DIR}/action_${seq}.out"
   local err="${HARNESS_RUN_DIR}/action_${seq}.err"
