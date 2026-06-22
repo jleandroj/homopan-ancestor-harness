@@ -78,10 +78,12 @@ harness_log() {   # <type> [k v k v ...]  -> appends one JSON object to audit.js
   HARNESS_SEQ=$((HARNESS_SEQ+1))
   local jq; jq="$(harness_jq)"
   # Build args as --arg pairs (all values are strings; callers pre-stringify).
+  # Iteration 10: hash-chain each line to the previous one (tamper-evidence).
   local args=(--arg ts "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" \
               --arg run_id "${HARNESS_RUN_ID:-unknown}" \
-              --argjson seq "${HARNESS_SEQ}" --arg type "${type}")
-  local obj='{ts:$ts, run_id:$run_id, seq:$seq, type:$type}'
+              --argjson seq "${HARNESS_SEQ}" --arg type "${type}" \
+              --arg prev "${HARNESS_PREV_HASH:-genesis}")
+  local obj='{ts:$ts, run_id:$run_id, seq:$seq, type:$type, prev:$prev}'
   while (( $# >= 2 )); do
     local k="$1" v="$2"; shift 2
     args+=(--arg "k_${k}" "${v}")
@@ -89,7 +91,9 @@ harness_log() {   # <type> [k v k v ...]  -> appends one JSON object to audit.js
   done
   local line
   line="$("${jq}" -cn "${args[@]}" "${obj}" 2>/dev/null)" || \
-    line="{\"ts\":\"$(date -u +%FT%TZ)\",\"run_id\":\"${HARNESS_RUN_ID:-unknown}\",\"seq\":${HARNESS_SEQ},\"type\":\"${type}\",\"_logerr\":1}"
+    line="{\"ts\":\"$(date -u +%FT%TZ)\",\"run_id\":\"${HARNESS_RUN_ID:-unknown}\",\"seq\":${HARNESS_SEQ},\"type\":\"${type}\",\"prev\":\"${HARNESS_PREV_HASH:-genesis}\",\"_logerr\":1}"
+  # this line's hash becomes the link for the next one
+  HARNESS_PREV_HASH="$(printf '%s' "${line}" | sha256sum | cut -d' ' -f1)"
   # Append under flock so concurrent actions never interleave a line.
   if command -v flock >/dev/null 2>&1; then
     ( flock 9; printf '%s\n' "${line}" >> "${audit}" ) 9>>"${audit}.lock" 2>/dev/null || printf '%s\n' "${line}" >> "${audit}" 2>/dev/null || true
@@ -235,6 +239,24 @@ harness_on_signal() {   # trap handler: record, then exit non-zero (don't die si
   return 0
 }
 
+# ── Iteration 10: tamper-evident audit log (hash-chain verification) ───────
+# Each line carries prev = sha256 of the previous line, so deleting, editing, or
+# reordering ANY line breaks the chain. Returns 0 if intact, 1 if tampered.
+harness_verify_log() {   # <audit.jsonl>
+  local audit="${1}" jq prev="genesis" ln exp n=0 bad=0
+  jq="$(harness_jq)"
+  [[ -f "${audit}" ]] || { echo "verify: no audit log: ${audit}" >&2; return 2; }
+  while IFS= read -r ln; do
+    n=$((n+1))
+    exp="$(printf '%s' "${ln}" | "${jq}" -r '.prev // "MISSING"' 2>/dev/null)"
+    if [[ "${exp}" != "${prev}" ]]; then
+      echo "TAMPER at line ${n}: chain expected prev=${prev:0:12}, found ${exp:0:12}" >&2; bad=1
+    fi
+    prev="$(printf '%s' "${ln}" | sha256sum | cut -d' ' -f1)"
+  done < "${audit}"
+  (( bad == 0 )) && { echo "audit log intact (${n} lines, chain verified)"; return 0; } || return 1
+}
+
 # ── Iteration 9: automatic report on completion OR failure ─────────────────
 # Aggregates the audit log into report.json (machine) + report.md (human),
 # surfacing every problem (errors, denials, timeouts, kills, interrupts) and a
@@ -259,6 +281,10 @@ harness_report() {
     | .problems = (.errors + .denials + .timeouts + .kills + .interrupted)
     | .status = (if .problems>0 then "PROBLEMS" else "OK" end)
   ' < "${audit}" > "${HARNESS_RUN_DIR}/report.json" 2>/dev/null || return 0
+  # fold in tamper-evidence verdict (iter 10)
+  local integ; if harness_verify_log "${audit}" >/dev/null 2>&1; then integ="intact"; else integ="TAMPERED"; fi
+  "${jq}" --arg i "${integ}" '. + {integrity:$i}' < "${HARNESS_RUN_DIR}/report.json" > "${HARNESS_RUN_DIR}/report.json.tmp" 2>/dev/null \
+    && mv -f "${HARNESS_RUN_DIR}/report.json.tmp" "${HARNESS_RUN_DIR}/report.json"
   # human-readable
   {
     local r="${HARNESS_RUN_DIR}/report.json"
@@ -298,6 +324,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
           echo "run_id=${HARNESS_RUN_ID} dir=${HARNESS_RUN_DIR} exit=${rc}" >&2
           exit "${rc}" ;;
     kill) shift; kf="${1:?usage: harness.sh kill <run_dir>}/KILL"; : > "${kf}" && echo "kill-switch set: ${kf}" ;;
-    *)    echo "usage: harness.sh {id|init|run -- <cmd...>|kill <run_dir>}" >&2; exit 2 ;;
+    verify) shift; harness_verify_log "${1:?usage: harness.sh verify <run_dir>/audit.jsonl or <run_dir>}"$([[ -d "${1}" ]] && echo "/audit.jsonl") ;;
+    *)    echo "usage: harness.sh {id|init|run -- <cmd...>|kill <run_dir>|verify <run_dir>}" >&2; exit 2 ;;
   esac
 fi

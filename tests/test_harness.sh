@@ -166,6 +166,19 @@ d9b="$( bash "${H}" run -- bash -c 'exit 0' 2>&1 >/dev/null | sed -n 's/.*dir=\(
 [[ -n "${d9b}" ]] && jq -e '.status=="OK" and .problems==0' < "${d9b}/report.json" >/dev/null 2>&1 \
   && ok "clean run reports status OK" || no "clean run not OK (d=${d9b})"
 
+# ── Iteration 10: tamper-evident audit log (hash chain) ────────────────────
+d10="$( bash "${H}" run -- bash -c 'echo a; echo b' 2>&1 >/dev/null | sed -n 's/.*dir=\([^ ]*\) .*/\1/p' )"
+if [[ -n "${d10}" && -f "${d10}/audit.jsonl" ]]; then
+  bash "${H}" verify "${d10}/audit.jsonl" >/dev/null 2>&1 && ok "intact audit log verifies (chain ok)" || no "intact log failed verify"
+  # tamper: delete a middle line -> chain must break
+  sed -i '2d' "${d10}/audit.jsonl"
+  bash "${H}" verify "${d10}/audit.jsonl" >/dev/null 2>&1 && no "tamper NOT detected" || ok "tamper (deleted line) DETECTED by hash chain"
+  # report records integrity verdict
+  jq -e '.integrity' < "${d10}/report.json" >/dev/null 2>&1 && ok "report.json records integrity verdict" || no "no integrity in report"
+else
+  no "iter10 run produced no audit (d=${d10})"
+fi
+
 echo ""
 echo "  Results: ${pass} passed, ${fail} failed"
 (( fail == 0 )) && { echo "ALL TESTS PASSED"; exit 0; } || { echo "TESTS FAILED"; exit 1; }
