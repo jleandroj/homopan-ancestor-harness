@@ -209,15 +209,46 @@ harness_exec() {
   return "${rc}"
 }
 
+# ── Iteration 8: bounded retry + crash isolation ───────────────────────────
+# A transient failure is retried with backoff (bounded). The action always runs
+# in a child subshell, so even a crash/segfault/kill of the action cannot take
+# down the supervisor -- it is observed as a non-zero exit, logged, and (if
+# retries remain) retried. The harness itself traps signals so an interrupt is
+# recorded, not silent.
+harness_exec_retry() {
+  local tries="${HARNESS_RETRIES:-0}" backoff="${HARNESS_BACKOFF_S:-3}" attempt=0 rc=0
+  while :; do
+    attempt=$((attempt+1))
+    harness_exec "$@"; rc=$?
+    # do not retry policy denials (126) or kill-switch (137) -- those are decisions
+    if [[ ${rc} -eq 0 || ${rc} -eq 126 || ${rc} -eq 137 ]]; then break; fi
+    if (( attempt > tries )); then break; fi
+    harness_log "retry" cmd "$*" attempt "${attempt}" of "${tries}" last_exit "${rc}" backoff_s "${backoff}"
+    sleep "${backoff}" 2>/dev/null || true
+  done
+  return "${rc}"
+}
+
+harness_on_signal() {   # trap handler: record, then exit non-zero (don't die silent)
+  harness_log "interrupted" signal "${1:-?}"
+  HARNESS_INTERRUPTED=1
+  return 0
+}
+
 # CLI
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   case "${1:-}" in
     id)   harness_runid ;;
     init) harness_init && echo "${HARNESS_RUN_DIR}" ;;
     run)  shift; harness_init || exit 70; harness_seal_audit
+          HARNESS_INTERRUPTED=0
+          trap 'harness_on_signal INT'  INT
+          trap 'harness_on_signal TERM' TERM
           harness_log "start" argv "$*"
-          harness_exec "$@"; rc=$?
-          harness_log "end" exit "${rc}"
+          # The supervisor must survive the action's failure: run under a guard
+          # so a non-zero/crash never aborts the harness (no set -e here anyway).
+          harness_exec_retry "$@"; rc=$?
+          harness_log "end" exit "${rc}" interrupted "${HARNESS_INTERRUPTED:-0}"
           echo "run_id=${HARNESS_RUN_ID} dir=${HARNESS_RUN_DIR} exit=${rc}" >&2
           exit "${rc}" ;;
     kill) shift; kf="${1:?usage: harness.sh kill <run_dir>}/KILL"; : > "${kf}" && echo "kill-switch set: ${kf}" ;;

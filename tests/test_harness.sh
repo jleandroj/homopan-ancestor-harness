@@ -130,6 +130,28 @@ d7="$( HARNESS_SANDBOX=1 HOMOPAN_BWRAP_BIN=/nonexistent/bwrap HARNESS_ALLOW_UNSA
 [[ -n "${d7}" ]] && grep -q '"mode":"DISABLED-by-override"' "${d7}/audit.jsonl" 2>/dev/null \
   && ok "unsandboxed override runs + is recorded" || no "override not recorded (d=${d7})"
 
+# ── Iteration 8: bounded retry + crash isolation ───────────────────────────
+# a flaky action that fails then succeeds is retried; retries are logged.
+d8="$( HARNESS_RETRIES=3 HARNESS_BACKOFF_S=0 bash "${H}" run -- bash -c '
+  f="'"${TMP}"'/attempts"; n=$(cat "$f" 2>/dev/null || echo 0); n=$((n+1)); echo $n >"$f"
+  [[ $n -ge 2 ]]' 2>&1 >/dev/null | sed -n 's/.*dir=\([^ ]*\) .*/\1/p' )"
+rc8=$?
+if [[ -n "${d8}" ]] && grep -q '"type":"retry"' "${d8}/audit.jsonl" 2>/dev/null; then
+  ok "failed action is retried (with logged attempts)"
+  fe="$(grep '"type":"end"' "${d8}/audit.jsonl" | tail -1)"
+  [[ "$(echo "${fe}" | jq -r '.exit')" == "0" ]] && ok "retry eventually succeeds -> exit 0" || no "retry final exit not 0: ${fe}"
+else
+  no "no retry recorded (d=${d8})"
+fi
+# a crashing action (kill -SEGV self) does NOT take down the harness; it's logged + reported
+d8b="$( bash "${H}" run -- bash -c 'kill -SEGV $$' 2>&1 >/dev/null | sed -n 's/.*dir=\([^ ]*\) .*/\1/p' )"
+[[ -n "${d8b}" ]] && grep -q '"type":"end"' "${d8b}/audit.jsonl" 2>/dev/null \
+  && ok "action crash is contained; harness completes + logs end" || no "harness did not survive crash (d=${d8b})"
+# policy denials are NOT retried
+d8c="$( HARNESS_RETRIES=3 bash "${H}" run -- forbidden_prog 2>&1 >/dev/null | sed -n 's/.*dir=\([^ ]*\) .*/\1/p' )"
+[[ -n "${d8c}" ]] && ! grep -q '"type":"retry"' "${d8c}/audit.jsonl" 2>/dev/null \
+  && ok "policy denial is not retried" || no "denial was retried (d=${d8c})"
+
 echo ""
 echo "  Results: ${pass} passed, ${fail} failed"
 (( fail == 0 )) && { echo "ALL TESTS PASSED"; exit 0; } || { echo "TESTS FAILED"; exit 1; }
