@@ -39,3 +39,21 @@ sections (SHOULD) make a skill's effects predictable to the orchestrator that
 delegates to it. The gate folds the whole `skills/` tree into its hash, so any
 change to a skill (including its declared tools) invalidates the gate pass until
 `bash init.sh` re-runs — this contract makes that change reviewable.
+
+## Not a runtime boundary (honest scope — P3.3)
+
+`allowed-tools` is **declarative and reviewed**, not **runtime-enforced**: the
+skill loader does not sandbox a skill to its declared tools. A skill cannot
+exceed what the agent itself can do, and the **actual** enforcement boundaries
+are, in order of strength:
+
+1. `scripts/sandbox_run.sh` (bubblewrap, no-egress) — the only real containment.
+2. The PreToolUse gate (`.claude/gate_check.sh`) + `permissions.deny` —
+   defense-in-depth, heuristic (see `SECURITY.md`).
+
+The `bio-*` skills here are **reference/documentation** — curated workflows,
+tool-selection guidance, and example scripts — **not** privileged code paths.
+`allowed-tools` + the contract test (`tests/test_skill_contracts.sh`) make a
+skill's intended surface auditable and reviewable; they do **not** confine it at
+run time. Do not rely on `allowed-tools` as a security control; rely on the gate
+and the sandbox.
