@@ -52,7 +52,62 @@ harness_init() {
   return 0
 }
 
-# CLI: `harness.sh id` prints a fresh run id; `harness.sh init` sets up a run dir.
+# ── Iteration 2: capable jq + structured append-only audit log ─────────────
+# The host `jq` may be the snap build, which is confined and CANNOT open
+# file-path args (Permission denied). Resolve a capable jq once and ALWAYS feed
+# it via stdin. Audit events are JSON Lines, append-only, sequenced, and locked
+# so concurrent writers never interleave; we also try to make the file truly
+# append-only (chattr +a) so even the agent cannot rewrite history.
+harness_jq() {
+  if [[ -z "${HARNESS_JQ:-}" ]]; then
+    local c
+    for c in "${HOMOPAN_JQ:-}" "${HOME}/miniconda3/envs/homopan_ancestor/bin/jq" \
+             "${HOME}/miniconda3/bin/jq" /usr/bin/jq jq; do
+      [[ -n "$c" ]] && command -v "$c" >/dev/null 2>&1 && { HARNESS_JQ="$c"; break; }
+    done
+    : "${HARNESS_JQ:=jq}"
+  fi
+  printf '%s' "${HARNESS_JQ}"
+}
+
+HARNESS_SEQ=0
+harness_log() {   # <type> [k v k v ...]  -> appends one JSON object to audit.jsonl
+  local type="$1"; shift || true
+  local audit="${HARNESS_RUN_DIR}/audit.jsonl"
+  local ext="${HOMOPAN_AUDIT_LOG:-${HOME}/.homopan_audit.jsonl}"
+  HARNESS_SEQ=$((HARNESS_SEQ+1))
+  local jq; jq="$(harness_jq)"
+  # Build args as --arg pairs (all values are strings; callers pre-stringify).
+  local args=(--arg ts "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" \
+              --arg run_id "${HARNESS_RUN_ID:-unknown}" \
+              --argjson seq "${HARNESS_SEQ}" --arg type "${type}")
+  local obj='{ts:$ts, run_id:$run_id, seq:$seq, type:$type}'
+  while (( $# >= 2 )); do
+    local k="$1" v="$2"; shift 2
+    args+=(--arg "k_${k}" "${v}")
+    obj="${obj} + {${k}:\$k_${k}}"
+  done
+  local line
+  line="$("${jq}" -cn "${args[@]}" "${obj}" 2>/dev/null)" || \
+    line="{\"ts\":\"$(date -u +%FT%TZ)\",\"run_id\":\"${HARNESS_RUN_ID:-unknown}\",\"seq\":${HARNESS_SEQ},\"type\":\"${type}\",\"_logerr\":1}"
+  # Append under flock so concurrent actions never interleave a line.
+  if command -v flock >/dev/null 2>&1; then
+    ( flock 9; printf '%s\n' "${line}" >> "${audit}" ) 9>>"${audit}.lock" 2>/dev/null || printf '%s\n' "${line}" >> "${audit}" 2>/dev/null || true
+  else
+    printf '%s\n' "${line}" >> "${audit}" 2>/dev/null || true
+  fi
+  printf '%s\n' "${line}" >> "${ext}" 2>/dev/null || true
+}
+
+# Make the per-run audit log append-only if we can (defense vs. the agent
+# rewriting its own history). Best-effort: chattr needs privileges on some FS.
+harness_seal_audit() {
+  local audit="${HARNESS_RUN_DIR}/audit.jsonl"
+  [[ -e "${audit}" ]] || : > "${audit}"
+  chattr +a "${audit}" 2>/dev/null || true
+}
+
+# CLI
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   case "${1:-}" in
     id)   harness_runid ;;

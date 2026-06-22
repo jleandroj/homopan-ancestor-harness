@@ -30,6 +30,25 @@ else
   no "run.json missing/invalid (dir=${rd})"
 fi
 
+# ── Iteration 2: structured append-only audit log ─────────────────────────
+audit="$( source "${H}"; harness_init >/dev/null 2>&1
+          harness_log "start" phase "init"
+          harness_log "action" cmd "echo hi" exit "0"
+          printf '%s' "${HARNESS_RUN_DIR}/audit.jsonl" )"
+if [[ -f "${audit}" ]] && [[ "$(wc -l < "${audit}")" == "2" ]] \
+   && jq -e '.seq==1 and .type=="start"' < <(head -1 "${audit}") >/dev/null 2>&1 \
+   && jq -e '.seq==2 and .type=="action" and .cmd=="echo hi"' < <(tail -1 "${audit}") >/dev/null 2>&1; then
+  ok "audit.jsonl is valid JSONL, sequenced, ordered"
+else
+  no "audit log malformed (file=${audit})"
+fi
+# every line must be parseable JSON (no corruption)
+if [[ -f "${audit}" ]] && while read -r l; do echo "$l" | jq -e . >/dev/null 2>&1 || exit 1; done < "${audit}"; then
+  ok "every audit line is valid JSON"
+else
+  no "audit log has non-JSON lines"
+fi
+
 echo ""
 echo "  Results: ${pass} passed, ${fail} failed"
 (( fail == 0 )) && { echo "ALL TESTS PASSED"; exit 0; } || { echo "TESTS FAILED"; exit 1; }
