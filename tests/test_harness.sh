@@ -101,6 +101,19 @@ else
 fi
 grep -q '"type":"killed"' "${ksdir}/audit.jsonl" 2>/dev/null && ok "kill recorded in audit log" || no "kill not logged"
 
+# ── Iteration 6: resource limits ───────────────────────────────────────────
+# a 1 MB file-size limit must make a 10 MB write fail (SIGXFSZ), and it's logged.
+d6="$( HARNESS_LIM_FSIZE_MB=1 bash "${H}" run -- bash -c 'dd if=/dev/zero of=big.bin bs=1M count=10 2>/dev/null' 2>&1 >/dev/null | sed -n 's/.*dir=\([^ ]*\) .*/\1/p' )"
+if [[ -n "${d6}" ]] && grep -q '"type":"limits"' "${d6}/audit.jsonl" 2>/dev/null; then
+  ae6="$(grep '"type":"action_end"' "${d6}/audit.jsonl" | tail -1)"
+  [[ "$(echo "${ae6}" | jq -r '.exit')" != "0" ]] && ok "rlimit (fsize) enforced -> action fails" || no "fsize limit not enforced: ${ae6}"
+  echo "${ae6}" >/dev/null
+  ok "limits recorded in audit log"
+else
+  no "limits not applied/logged (d=${d6})"
+fi
+rm -f big.bin 2>/dev/null
+
 echo ""
 echo "  Results: ${pass} passed, ${fail} failed"
 (( fail == 0 )) && { echo "ALL TESTS PASSED"; exit 0; } || { echo "TESTS FAILED"; exit 1; }

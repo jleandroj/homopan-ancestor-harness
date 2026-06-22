@@ -152,13 +152,25 @@ harness_exec() {
   local cmdstr="$*"
   local tmo="${HARNESS_TIMEOUT:-0}"   # seconds; 0 = no timeout
   harness_log "action_start" cmd "${cmdstr}" timeout_s "${tmo}" stdout "$(basename "${out}")" stderr "$(basename "${err}")"
+  # ── Iteration 6: resource limits (rlimits) ──────────────────────────────
+  # Apply rlimits in the child subshell so a misbehaving action cannot exhaust
+  # CPU/RAM/disk/PIDs and take down the host. Each limit is opt-in (set the env);
+  # what was applied is recorded. Defaults are off so legitimate heavy steps
+  # (Cactus) are not silently starved -- the operator sets limits per workload.
   local t0 t1 rc dur
+  local _to_timeout=0; [[ "${tmo}" != "0" ]] && command -v timeout >/dev/null 2>&1 && _to_timeout=1
+  harness_log "limits" cmd "${cmdstr}" cpu_s "${HARNESS_LIM_CPU:-none}" mem_mb "${HARNESS_LIM_MEM_MB:-none}" \
+    fsize_mb "${HARNESS_LIM_FSIZE_MB:-none}" nproc "${HARNESS_LIM_NPROC:-none}"
   t0="$(date +%s%3N 2>/dev/null || date +%s000)"
-  if [[ "${tmo}" != "0" ]] && command -v timeout >/dev/null 2>&1; then
-    timeout --kill-after=10 "${tmo}" "$@" >"${out}" 2>"${err}"; rc=$?
-  else
-    "$@" >"${out}" 2>"${err}"; rc=$?
-  fi
+  (
+    [[ -n "${HARNESS_LIM_CPU:-}" ]]     && ulimit -t "${HARNESS_LIM_CPU}" 2>/dev/null || true
+    [[ -n "${HARNESS_LIM_MEM_MB:-}" ]]  && ulimit -v "$(( HARNESS_LIM_MEM_MB * 1024 ))" 2>/dev/null || true
+    [[ -n "${HARNESS_LIM_FSIZE_MB:-}" ]]&& ulimit -f "$(( HARNESS_LIM_FSIZE_MB * 1024 ))" 2>/dev/null || true
+    [[ -n "${HARNESS_LIM_NPROC:-}" ]]   && ulimit -u "${HARNESS_LIM_NPROC}" 2>/dev/null || true
+    ulimit -c 0 2>/dev/null || true   # never dump cores
+    if (( _to_timeout )); then exec timeout --kill-after=10 "${tmo}" "$@"; else exec "$@"; fi
+  ) >"${out}" 2>"${err}"
+  rc=$?
   t1="$(date +%s%3N 2>/dev/null || date +%s000)"
   dur=$(( t1 - t0 ))
   if [[ ${rc} -eq 124 ]]; then
