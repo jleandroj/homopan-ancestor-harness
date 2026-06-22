@@ -129,6 +129,13 @@ harness_allowed() {   # <program>
   return 1
 }
 
+# Can this host actually create a sandbox? (unprivileged userns probe)
+harness_sandbox_ok() {
+  local bw="${HOMOPAN_BWRAP_BIN:-bwrap}"
+  command -v "${bw}" >/dev/null 2>&1 || return 1
+  "${bw}" --unshare-user --unshare-net --ro-bind /usr /usr --tmpfs /tmp true >/dev/null 2>&1
+}
+
 harness_exec() {
   [[ "${1:-}" == "--" ]] && shift
   (( $# >= 1 )) || { echo "harness_exec: no command" >&2; return 64; }
@@ -136,6 +143,23 @@ harness_exec() {
     harness_log "denied" cmd "$*" reason "program not in allowlist" program "$(basename -- "$1")"
     echo "harness: DENIED '$(basename -- "$1")' -- not in allowlist." >&2
     return 126
+  fi
+  # ── Iteration 7: real sandbox (bwrap) integration, fail-closed ───────────
+  # HARNESS_SANDBOX != 0 -> run the action inside scripts/sandbox_run.sh (the
+  # no-egress bwrap boundary). If a sandbox is requested but the host cannot
+  # provide one, DENY (fail-closed) unless HARNESS_ALLOW_UNSANDBOXED=1 (recorded).
+  local sbprefix=()
+  if [[ "${HARNESS_SANDBOX:-0}" != "0" ]]; then
+    if harness_sandbox_ok; then
+      sbprefix=(bash "${HARNESS_ROOT}/scripts/sandbox_run.sh")
+      harness_log "sandbox" cmd "$*" mode "on"
+    elif [[ "${HARNESS_ALLOW_UNSANDBOXED:-0}" == "1" ]]; then
+      harness_log "sandbox" cmd "$*" mode "DISABLED-by-override"
+    else
+      harness_log "denied" cmd "$*" reason "sandbox requested but host cannot sandbox (fail-closed)"
+      echo "harness: DENIED -- sandbox requested but host lacks userns/bwrap. Set HARNESS_ALLOW_UNSANDBOXED=1 to run unsandboxed (recorded)." >&2
+      return 126
+    fi
   fi
   # ── Iteration 5: kill-switch + per-action timeout ───────────────────────
   # Kill-switch: a sentinel file (per-run or global) halts execution before any
@@ -168,7 +192,7 @@ harness_exec() {
     [[ -n "${HARNESS_LIM_FSIZE_MB:-}" ]]&& ulimit -f "$(( HARNESS_LIM_FSIZE_MB * 1024 ))" 2>/dev/null || true
     [[ -n "${HARNESS_LIM_NPROC:-}" ]]   && ulimit -u "${HARNESS_LIM_NPROC}" 2>/dev/null || true
     ulimit -c 0 2>/dev/null || true   # never dump cores
-    if (( _to_timeout )); then exec timeout --kill-after=10 "${tmo}" "$@"; else exec "$@"; fi
+    if (( _to_timeout )); then exec timeout --kill-after=10 "${tmo}" "${sbprefix[@]}" "$@"; else exec "${sbprefix[@]}" "$@"; fi
   ) >"${out}" 2>"${err}"
   rc=$?
   t1="$(date +%s%3N 2>/dev/null || date +%s000)"

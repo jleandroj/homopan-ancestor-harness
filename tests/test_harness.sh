@@ -114,6 +114,22 @@ else
 fi
 rm -f big.bin 2>/dev/null
 
+# ── Iteration 7: sandbox integration (fail-closed) ─────────────────────────
+# On a host WITHOUT userns, requesting sandbox must DENY (fail-closed) unless
+# explicitly overridden. We simulate "cannot sandbox" via a bogus bwrap.
+out7="$( HARNESS_SANDBOX=1 HOMOPAN_BWRAP_BIN=/nonexistent/bwrap bash "${H}" run -- bash -c 'echo NOPE' 2>&1 )"
+rc7=$?
+if [[ ${rc7} -eq 126 ]] && ! echo "${out7}" | grep -q NOPE; then
+  ok "sandbox requested + unavailable -> fail-closed DENY"
+else
+  no "sandbox not fail-closed (rc=${rc7})"
+fi
+# explicit override runs unsandboxed AND records it
+d7="$( HARNESS_SANDBOX=1 HOMOPAN_BWRAP_BIN=/nonexistent/bwrap HARNESS_ALLOW_UNSANDBOXED=1 \
+       bash "${H}" run -- bash -c 'exit 0' 2>&1 >/dev/null | sed -n 's/.*dir=\([^ ]*\) .*/\1/p' )"
+[[ -n "${d7}" ]] && grep -q '"mode":"DISABLED-by-override"' "${d7}/audit.jsonl" 2>/dev/null \
+  && ok "unsandboxed override runs + is recorded" || no "override not recorded (d=${d7})"
+
 echo ""
 echo "  Results: ${pass} passed, ${fail} failed"
 (( fail == 0 )) && { echo "ALL TESTS PASSED"; exit 0; } || { echo "TESTS FAILED"; exit 1; }
