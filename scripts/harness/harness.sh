@@ -107,11 +107,44 @@ harness_seal_audit() {
   chattr +a "${audit}" 2>/dev/null || true
 }
 
+# ── Iteration 3: harness_exec -- the single execution path ─────────────────
+# EVERY action must run through this. It captures stdout+stderr to per-action
+# files, measures wall-clock duration, records start/end + exit code + output
+# hashes in the audit log, and returns the command's own exit code. Nothing the
+# agent does should bypass it; if it does, there is no audit trail for it.
+harness_exec() {
+  [[ "${1:-}" == "--" ]] && shift
+  (( $# >= 1 )) || { echo "harness_exec: no command" >&2; return 64; }
+  local seq=$((HARNESS_SEQ+1))   # the action_start log will consume this seq
+  local out="${HARNESS_RUN_DIR}/action_${seq}.out"
+  local err="${HARNESS_RUN_DIR}/action_${seq}.err"
+  local cmdstr="$*"
+  harness_log "action_start" cmd "${cmdstr}" stdout "$(basename "${out}")" stderr "$(basename "${err}")"
+  local t0 t1 rc dur
+  t0="$(date +%s%3N 2>/dev/null || date +%s000)"
+  "$@" >"${out}" 2>"${err}"; rc=$?
+  t1="$(date +%s%3N 2>/dev/null || date +%s000)"
+  dur=$(( t1 - t0 ))
+  local osha esha
+  osha="$(sha256sum "${out}" 2>/dev/null | cut -d' ' -f1)"; esha="$(sha256sum "${err}" 2>/dev/null | cut -d' ' -f1)"
+  harness_log "action_end" cmd "${cmdstr}" exit "${rc}" duration_ms "${dur}" \
+    out_bytes "$(wc -c <"${out}" 2>/dev/null || echo 0)" err_bytes "$(wc -c <"${err}" 2>/dev/null || echo 0)" \
+    out_sha256 "${osha:-}" err_sha256 "${esha:-}" \
+    outcome "$([[ ${rc} -eq 0 ]] && echo ok || echo error)"
+  return "${rc}"
+}
+
 # CLI
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   case "${1:-}" in
     id)   harness_runid ;;
     init) harness_init && echo "${HARNESS_RUN_DIR}" ;;
-    *)    echo "usage: harness.sh {id|init}" >&2; exit 2 ;;
+    run)  shift; harness_init || exit 70; harness_seal_audit
+          harness_log "start" argv "$*"
+          harness_exec "$@"; rc=$?
+          harness_log "end" exit "${rc}"
+          echo "run_id=${HARNESS_RUN_ID} dir=${HARNESS_RUN_DIR} exit=${rc}" >&2
+          exit "${rc}" ;;
+    *)    echo "usage: harness.sh {id|init|run -- <cmd...>}" >&2; exit 2 ;;
   esac
 fi

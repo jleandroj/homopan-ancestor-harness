@@ -49,6 +49,24 @@ else
   no "audit log has non-JSON lines"
 fi
 
+# ── Iteration 3: harness_exec captures I/O + duration + exit, returns rc ───
+d="$( bash "${H}" run -- bash -c 'echo out; echo err >&2; exit 7' 2>/dev/null | sed -n 's/.*dir=\([^ ]*\).*/\1/p' )"
+# (dir is printed to stderr; recapture)
+d="$( bash "${H}" run -- bash -c 'echo out; echo err >&2; exit 7' 2>&1 >/dev/null | sed -n 's/.*dir=\([^ ]*\) .*/\1/p' )"
+if [[ -n "${d}" && -f "${d}/audit.jsonl" ]]; then
+  ae="$(grep '"type":"action_end"' "${d}/audit.jsonl" | tail -1)"
+  echo "${ae}" | jq -e '.exit=="7" and (.duration_ms|tonumber>=0) and .outcome=="error"' >/dev/null 2>&1 \
+    && ok "harness_exec records exit + duration + outcome" || no "action_end fields wrong: ${ae}"
+  oid="$(echo "${ae}" | jq -r '.cmd' 2>/dev/null)"
+  [[ -s "${d}/action_3.out" || -n "$(grep -l out "${d}"/action_*.out 2>/dev/null)" ]] && ok "stdout captured to file" || no "stdout not captured"
+  grep -rq 'err' "${d}"/action_*.err 2>/dev/null && ok "stderr captured to file" || no "stderr not captured"
+else
+  no "run produced no run dir/audit (d=${d})"
+fi
+# exit code propagation
+bash "${H}" run -- bash -c 'exit 0' >/dev/null 2>&1 && ok "harness run propagates exit 0" || no "exit 0 not propagated"
+bash "${H}" run -- bash -c 'exit 3' >/dev/null 2>&1; [[ $? -eq 3 ]] && ok "harness run propagates non-zero exit" || no "non-zero exit not propagated"
+
 echo ""
 echo "  Results: ${pass} passed, ${fail} failed"
 (( fail == 0 )) && { echo "ALL TESTS PASSED"; exit 0; } || { echo "TESTS FAILED"; exit 1; }
