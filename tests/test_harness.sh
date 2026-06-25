@@ -179,6 +179,22 @@ else
   no "iter10 run produced no audit (d=${d10})"
 fi
 
+# ── Gap #1: external anchor defeats a chain-RECOMPUTE tamper ───────────────
+export HOMOPAN_AUDIT_LOG="${TMP}/ext_audit.jsonl"
+da="$( bash "${H}" run -- bash -c 'echo x' 2>&1 >/dev/null | sed -n 's/.*dir=\([^ ]*\) .*/\1/p' )"
+if [[ -n "${da}" && -f "${da}/audit.jsonl" ]]; then
+  bash "${H}" verify "${da}/audit.jsonl" >/dev/null 2>&1 && ok "anchored log verifies (internal chain + external anchor)" || no "anchored verify failed"
+  # tamper WITH recompute: append a chain-valid fabricated line (internal chain stays consistent)
+  last="$(tail -1 "${da}/audit.jsonl")"; lh="$(printf '%s' "${last}" | sha256sum | cut -d' ' -f1)"
+  jq -cn --arg p "${lh}" '{ts:"x",run_id:"x",seq:999,type:"fabricated",prev:$p}' >> "${da}/audit.jsonl"
+  bash "${H}" verify "${da}/audit.jsonl" >/dev/null 2>&1 \
+    && no "external anchor did NOT catch a chain-recompute tamper" \
+    || ok "external anchor catches chain-recompute tamper (head/count mismatch)"
+else
+  no "anchor run produced no audit (da=${da})"
+fi
+unset HOMOPAN_AUDIT_LOG
+
 # ── Integration: run_supervised.sh + orchestrator guard ───────────────────
 # bad mode -> usage error
 bash "${ROOT}/scripts/run_supervised.sh" badmode >/dev/null 2>&1; [[ $? -eq 2 ]] && ok "run_supervised rejects bad mode" || no "bad mode not rejected"
@@ -194,6 +210,9 @@ fi
 # guard is OFF by default (does not break direct/test invocation): the condition
 # is false when the var is unset -> no spurious refusal.
 [[ -z "${HOMOPAN_REQUIRE_HARNESS:-}" ]] && ok "guard is opt-in (off by default)" || no "guard not opt-in"
+# Gap #3: production.env enforces the strict policy when sourced.
+pol="$( source "${ROOT}/scripts/harness/production.env"; echo "${HOMOPAN_REQUIRE_HARNESS:-}/${HARNESS_SANDBOX:-}" )"
+[[ "${pol}" == "1/1" ]] && ok "production.env enforces require-harness + sandbox" || no "production.env policy wrong (${pol})"
 
 echo ""
 echo "  Results: ${pass} passed, ${fail} failed"
