@@ -64,6 +64,7 @@ fse="$(fstat "$E")"
 # report renders
 bash "${ROOT}/scripts/verify_agents/report_agent.sh" "$E" >/dev/null 2>&1 && [[ -f "$E/REPORT.md" ]] \
   && grep -q 'Execution success is NOT scientific truth' "$E/REPORT.md" && ok "report renders with honesty disclaimers" || no "report missing/incomplete"
+grep -q 'Residual lie-vectors this verdict does NOT cover' "$E/REPORT.md" && ok "report DISCLOSES the 5 residual lie-vectors (harness tells you)" || no "report omits residual lie-vectors"
 
 # ── Scenario F: empty context -> honest UNKNOWN, never PASS ────────────────
 F="${TMP}/F"; mkdir -p "$F"
@@ -91,6 +92,23 @@ if [[ -f "${G}/verify/decision.json" && -f "${G}/verify/REPORT.md" ]]; then
 else
   no "assemble_and_verify produced no decision/report (verdict=${gv})"
 fi
+
+# ── #2 reconcile: prose number vs on-disk file ─────────────────────────────
+printf 'g1\tsig\ng2\tsig\ng3\tno\n' > "${TMP}/de.tsv"
+bash "${ROOT}/scripts/verify_agents/reconcile.sh" "${TMP}/de.tsv" 2 $'\tsig' >/dev/null 2>&1 \
+  && ok "reconcile: stated==actual -> MATCH" || no "reconcile match failed"
+bash "${ROOT}/scripts/verify_agents/reconcile.sh" "${TMP}/de.tsv" 500 $'\tsig' >/dev/null 2>&1 \
+  && no "reconcile passed a false stated count" || ok "reconcile: false stated count -> MISMATCH (#2)"
+
+# ── #3 ledger: same inputs run twice -> cherry-pick smell flagged ──────────
+export HOMOPAN_LEDGER="${TMP}/ledger.jsonl"
+echo "data" > "${TMP}/shared.meta"
+mkdir -p "${TMP}/r1" "${TMP}/r2"
+printf '%s\tmeta\n' "${TMP}/shared.meta" > "${TMP}/r1/inputs.tsv"; cp "${TMP}/r1/inputs.tsv" "${TMP}/r2/inputs.tsv"
+bash "${CO}" "${TMP}/r1" >/dev/null 2>&1; bash "${CO}" "${TMP}/r2" >/dev/null 2>&1
+bash "${ROOT}/scripts/verify_agents/ledger_audit.sh" "${TMP}/ledger.jsonl" >/dev/null 2>&1 \
+  && no "ledger_audit missed cherry-pick" || ok "ledger flags 2 runs over same inputs (#3 cherry-pick smell)"
+unset HOMOPAN_LEDGER
 
 echo ""
 echo "  Results: ${pass} passed, ${fail} failed"

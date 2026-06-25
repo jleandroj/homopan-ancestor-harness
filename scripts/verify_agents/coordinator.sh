@@ -61,6 +61,14 @@ reasons="$("${jq}" -rs '[.[]|select(.findings|length>0)|"\(.agent): \(.findings|
     rule:"PASS requires FactGuard+Provenance+Reproducibility=PASS and no hard failure; else downgraded.",
     reasons:$reasons, verdicts:$verdicts}' > "${ctx}/decision.json" 2>/dev/null
 
+# Gap #3: append to the cross-run ledger so cherry-picking (run many, show one)
+# becomes auditable. inputs_hash groups sibling runs over the same inputs.
+ledger="${HOMOPAN_LEDGER:-$(cd "${HERE}/../.." && pwd)/runs/_ledger.jsonl}"
+mkdir -p "$(dirname "${ledger}")" 2>/dev/null || true
+ih="none"; [[ -f "${ctx}/inputs.tsv" ]] && ih="$(sha256sum "${ctx}/inputs.tsv" 2>/dev/null | cut -c1-16)"
+"${jq}" -cn --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg ctx "${ctx}" --arg final "${final}" --arg ih "${ih}" \
+  '{ts:$ts, ctx:$ctx, final:$final, inputs_hash:$ih}' >> "${ledger}" 2>/dev/null || true
+
 echo "CoordinatorAgent: FINAL = ${final}" >&2
 echo "${final}"
 case "${final}" in PASS|PASS_EXPLORATORY) exit 0 ;; *) exit 1 ;; esac
