@@ -214,6 +214,36 @@ fi
 pol="$( source "${ROOT}/scripts/harness/production.env"; echo "${HOMOPAN_REQUIRE_HARNESS:-}/${HARNESS_SANDBOX:-}" )"
 [[ "${pol}" == "1/1" ]] && ok "production.env enforces require-harness + sandbox" || no "production.env policy wrong (${pol})"
 
+# ── Auto-verify Stop hook (runs the honesty checks every turn) ─────────────
+AV="${ROOT}/scripts/harness/auto_verify.sh"
+# clean state root -> no issues
+cr="${TMP}/clean"; mkdir -p "${cr}"
+HARNESS_VERIFY_ROOT="${cr}" bash "${AV}" </dev/null 2>/dev/null | grep -q 'no integrity' \
+  && ok "auto_verify: clean root -> no issues" || no "auto_verify clean failed"
+# cherry-pick ledger -> warns
+dr="${TMP}/dirty"; mkdir -p "${dr}/runs"
+printf '%s\n%s\n' '{"inputs_hash":"abc","final":"PASS"}' '{"inputs_hash":"abc","final":"FAIL_EVIDENCE"}' > "${dr}/runs/_ledger.jsonl"
+HARNESS_VERIFY_ROOT="${dr}" bash "${AV}" </dev/null 2>/dev/null | grep -q 'cherry-pick smell' \
+  && ok "auto_verify: cherry-pick ledger -> warns automatically" || no "auto_verify missed cherry-pick"
+# unbacked claim -> warns
+cl="${TMP}/clm"; mkdir -p "${cl}"; printf 'big claim\tnone\n' > "${cl}/claims.tsv"
+HARNESS_VERIFY_ROOT="${cl}" bash "${AV}" </dev/null 2>/dev/null | grep -q 'FactGuard=FAIL_EVIDENCE' \
+  && ok "auto_verify: unbacked claim -> warns automatically" || no "auto_verify missed unbacked claim"
+# auto_verify is fail-open (always exit 0)
+HARNESS_VERIFY_ROOT="${dr}" bash "${AV}" </dev/null >/dev/null 2>&1; [[ $? -eq 0 ]] && ok "auto_verify is fail-open (exit 0)" || no "auto_verify blocked (non-zero)"
+
+# ── add_autoverify_hook.sh installs the Stop hook idempotently ─────────────
+if command -v jq >/dev/null 2>&1; then
+  sj="${TMP}/settings.json"; printf '{"hooks":{"PreToolUse":[]}}\n' > "${sj}"
+  bash "${ROOT}/patches/add_autoverify_hook.sh" "${sj}" >/dev/null 2>&1
+  jq -e '.hooks.Stop[0].hooks[0].command|test("auto_verify")' < "${sj}" >/dev/null 2>&1 \
+    && ok "add_autoverify_hook installs Stop hook" || no "Stop hook not installed"
+  h1="$(jq -S . < "${sj}")"; bash "${ROOT}/patches/add_autoverify_hook.sh" "${sj}" >/dev/null 2>&1
+  [[ "$(jq -S . < "${sj}")" == "${h1}" ]] && ok "add_autoverify_hook is idempotent" || no "hook patch not idempotent"
+else
+  echo "  [SKIP] hook-install test (no jq)"
+fi
+
 echo ""
 echo "  Results: ${pass} passed, ${fail} failed"
 (( fail == 0 )) && { echo "ALL TESTS PASSED"; exit 0; } || { echo "TESTS FAILED"; exit 1; }
