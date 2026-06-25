@@ -20,12 +20,19 @@ printf 'Humans and chimps share an ancestor\tnone\n' > "$A/claims.tsv"
 bash "${CO}" "$A" >/dev/null 2>&1
 [[ "$(fstat "$A")" == "FAIL_EVIDENCE" ]] && ok "unbacked claim -> FAIL_EVIDENCE" || no "expected FAIL_EVIDENCE got $(fstat "$A")"
 
-# ── Scenario B: measured non-reproducible -> FAIL_REPRODUCIBILITY ──────────
+# ── Scenario B: AGENT-RECOMPUTED divergence -> FAIL_REPRODUCIBILITY ─────────
 B="${TMP}/B"; mkdir -p "$B"
 printf 'x\trun:1\n' > "$B/claims.tsv"
-printf '{"measured":true,"bit_identical":false,"identity":0.33,"threshold":0.999,"tool":"cactus 9.1.2","seed_supported":false}\n' > "$B/repro.json"
+printf 'AAA' > "$B/a.hal"; printf 'BBB' > "$B/b.hal"
+printf '{"artifact_a":"a.hal","artifact_b":"b.hal","tool":"cactus 9.1.2","seed_supported":false}\n' > "$B/repro.json"
 bash "${CO}" "$B" >/dev/null 2>&1
-[[ "$(fstat "$B")" == "FAIL_REPRODUCIBILITY" ]] && ok "non-reproducible -> FAIL_REPRODUCIBILITY" || no "expected FAIL_REPRODUCIBILITY got $(fstat "$B")"
+[[ "$(fstat "$B")" == "FAIL_REPRODUCIBILITY" ]] && ok "non-reproducible (agent-recomputed) -> FAIL_REPRODUCIBILITY" || no "expected FAIL_REPRODUCIBILITY got $(fstat "$B")"
+# Gap #4 closed: a bare {bit_identical:true} with NO artifacts is NOT trusted.
+Bb="${TMP}/Bb"; mkdir -p "$Bb"; printf 'x\trun:1\n' > "$Bb/claims.tsv"
+printf '{"bit_identical":true,"tool":"x"}\n' > "$Bb/repro.json"
+bash "${CO}" "$Bb" >/dev/null 2>&1
+"${jq}" -e '.verdicts[]|select(.agent=="ReproducibilityAgent" and .status=="INSUFFICIENT_EVIDENCE")' < "$Bb/decision.json" >/dev/null 2>&1 \
+  && ok "bare {bit_identical:true} (no artifacts) -> INSUFFICIENT_EVIDENCE (not trusted)" || no "bare assertion was TRUSTED (hole open!)"
 
 # ── Scenario C: destructive command -> FAIL_SECURITY dominates everything ──
 C="${TMP}/C"; mkdir -p "$C"
@@ -47,7 +54,8 @@ E="${TMP}/E"; mkdir -p "$E/ancestors"
 printf 'observed divergence X\tinputs.tsv\n' > "$E/claims.tsv"
 printf 'meta\tmeta\n' > "$E/inputs.tsv"; echo 'species=homo_sapiens' > "$E/meta"   # a non-empty meta input
 printf '%s\n' '{"run_id":"r","type":"action_end","exit":"0","duration_ms":"5","out_bytes":"3","err_bytes":"0"}' > "$E/audit.jsonl"
-printf '{"measured":true,"bit_identical":false,"identity":0.9995,"threshold":0.999,"tool":"x"}\n' > "$E/repro.json"
+printf 'SAME' > "$E/a.fa"; printf 'SAME' > "$E/b.fa"   # two identical run artifacts
+printf '{"artifact_a":"a.fa","artifact_b":"b.fa","tool":"x"}\n' > "$E/repro.json"
 printf '>Anc\nACGTACGT\n' > "$E/ancestors/Anc.fa"
 printf '{"determinism":{"reproducible":false}}\n' > "$E/ancestors/Anc.fa.provenance.json"
 bash "${CO}" "$E" >/dev/null 2>&1
@@ -61,6 +69,13 @@ bash "${ROOT}/scripts/verify_agents/report_agent.sh" "$E" >/dev/null 2>&1 && [[ 
 F="${TMP}/F"; mkdir -p "$F"
 bash "${CO}" "$F" >/dev/null 2>&1
 [[ "$(fstat "$F")" == "UNKNOWN" ]] && ok "empty context -> UNKNOWN (not PASS)" || no "expected UNKNOWN got $(fstat "$F")"
+
+# ── Scenario S: semantic FactGuard -- evidence must CONTAIN the claimed token ─
+S="${TMP}/S"; mkdir -p "$S"
+echo 'p_value=0.9 (not significant)' > "$S/result.txt"
+printf 'gene X is significant\tresult.txt\tp_value=0.001\n' > "$S/claims.tsv"
+bash "${CO}" "$S" >/dev/null 2>&1
+[[ "$(fstat "$S")" == "FAIL_EVIDENCE" ]] && ok "semantic check: evidence lacks claimed token -> FAIL_EVIDENCE" || no "semantic gap (got $(fstat "$S"))"
 
 # ── Scenario G: assemble_and_verify wires a run's artifacts -> decision+report
 G="${TMP}/G_run"; mkdir -p "${G}" "${TMP}/Gres/ancestors" "${TMP}/Ggen"

@@ -254,7 +254,32 @@ harness_verify_log() {   # <audit.jsonl>
     fi
     prev="$(printf '%s' "${ln}" | sha256sum | cut -d' ' -f1)"
   done < "${audit}"
+  # Gap #1: cross-check the chain HEAD + line count against the EXTERNAL anchor.
+  # A tamperer who edits a line and recomputes all downstream hashes makes the
+  # local chain self-consistent, but the final head changes -> it no longer
+  # matches the head anchored in the external append-only log (which an admin
+  # can chattr +a). Editing that too is out of the agent's reach.
+  local ext="${2:-${HOMOPAN_AUDIT_LOG:-${HOME}/.homopan_audit.jsonl}}"
+  local rid; rid="$(head -1 "${audit}" 2>/dev/null | "${jq}" -r '.run_id // ""' 2>/dev/null)"
+  if [[ -f "${ext}" && -n "${rid}" ]]; then
+    local anchor; anchor="$(grep -F '"type":"anchor"' "${ext}" 2>/dev/null | grep -F "\"run_id\":\"${rid}\"" | tail -1)"
+    if [[ -n "${anchor}" ]]; then
+      local ah al; ah="$(printf '%s' "${anchor}" | "${jq}" -r '.head' 2>/dev/null)"; al="$(printf '%s' "${anchor}" | "${jq}" -r '.lines' 2>/dev/null)"
+      if [[ "${prev}" != "${ah}" || "${n}" != "${al}" ]]; then
+        echo "TAMPER vs EXTERNAL ANCHOR: head ${prev:0:12}!=${ah:0:12} or lines ${n}!=${al}" >&2; bad=1
+      else echo "external anchor matches (head+lines)"; fi
+    fi
+  fi
   (( bad == 0 )) && { echo "audit log intact (${n} lines, chain verified)"; return 0; } || return 1
+}
+
+# Gap #1: anchor the final chain head + line count to the external append-only log.
+harness_anchor() {
+  local ext="${HOMOPAN_AUDIT_LOG:-${HOME}/.homopan_audit.jsonl}"; local jq; jq="$(harness_jq)"
+  local line; line="$("${jq}" -cn --arg rid "${HARNESS_RUN_ID:-unknown}" \
+    --argjson lines "${HARNESS_SEQ:-0}" --arg head "${HARNESS_PREV_HASH:-genesis}" \
+    --arg ts "$(date -u +%FT%TZ)" '{type:"anchor", run_id:$rid, lines:$lines, head:$head, ts:$ts}' 2>/dev/null)"
+  [[ -n "${line}" ]] && printf '%s\n' "${line}" >> "${ext}" 2>/dev/null || true
 }
 
 # ── Iteration 9: automatic report on completion OR failure ─────────────────
@@ -321,6 +346,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
           # so a non-zero/crash never aborts the harness (no set -e here anyway).
           harness_exec_retry "$@"; rc=$?
           harness_log "end" exit "${rc}" interrupted "${HARNESS_INTERRUPTED:-0}"
+          harness_anchor   # anchor chain head+count to the external append-only log
           echo "run_id=${HARNESS_RUN_ID} dir=${HARNESS_RUN_DIR} exit=${rc}" >&2
           exit "${rc}" ;;
     kill) shift; kf="${1:?usage: harness.sh kill <run_dir>}/KILL"; : > "${kf}" && echo "kill-switch set: ${kf}" ;;
